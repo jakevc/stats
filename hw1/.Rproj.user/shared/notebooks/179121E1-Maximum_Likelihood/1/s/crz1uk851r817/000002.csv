@@ -1,6 +1,0 @@
-"0","```r
-lnL <- dbinom(359, 1000, p, log=TRUE)
-length(lnL)
-```"
-"1","[1] 1001
-"

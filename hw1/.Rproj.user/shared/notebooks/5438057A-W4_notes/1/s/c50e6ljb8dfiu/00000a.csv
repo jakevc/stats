@@ -1,4 +1,0 @@
-"0","dummy_data %>% select('Population' == 'Boot') 
-"
-"2","Error: `""Population"" == ""Boot""` must resolve to integer column positions, not a logical vector
-"
