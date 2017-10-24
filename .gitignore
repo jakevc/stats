@@ -4,6 +4,10 @@
 
 
 # ignore .Rproj
+*.Rproj.usr
 *.Rproj
+*.Rhistory
+
+
 
 
