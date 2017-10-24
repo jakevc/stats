@@ -1,0 +1,9 @@
+# Ignore data 
+*.tsv
+*.csv
+
+
+# ignore .Rproj
+*.Rproj
+
+
