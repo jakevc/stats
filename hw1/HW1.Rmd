@@ -1,0 +1,302 @@
+---
+title: "HW1"
+author: "Jake VanCampen"
+date: "`r format(Sys.Date(), '%b-%d-%Y')`"
+output: html_document
+---
+
+```{r echo = FALSE}
+knitr::opts_chunk$set(message = FALSE)
+```
+
+## Exploratory Data Analysis
+
+An RNA-Seq dataset from two populations of threespine stickleback fish `HW_RNAseq.csv` were read it into R.
+
+```{r}
+# load tidyverse packages 
+library(tidyverse)
+
+RNAseq_raw <- read_csv('HW_RNAseq.csv',col_names = TRUE) 
+```
+
+To determing how the data were read in by the `{readr} read.csv()` function, the class of the dataset was observed with the `class()` funtion. Then, an initial look at the data.
+
+```{r}
+class(RNAseq_raw)
+head(RNAseq_raw)
+```
+
+
+It looks like the data were read in as a tibble. That's good news, it will make the dataset easier to work with. The categorical variables seem to be listed first, followed by the response variables. It could be useful to generate a list of each.
+
+```{r}
+vars_categorical <- colnames(RNAseq_raw)[1:4]
+vars_categorical
+
+vars_response <- colnames(RNAseq_raw)[5:length(colnames(RNAseq_raw))]
+vars_response
+```
+
+
+### Tidy Data
+
+It looks like there are 10 continuous variables (genes) that are described by these data. Before we can make histograms for each gene the data will need to be tidied such that each row is an observation and each column is a variable. Right now there are too many columns representing the same variable. To achieve this, the `tidyr` function `gather()` can be used to manipulate the data.frame to merge the gene variables. 
+
+
+```{r}
+# load tidyr package
+library(tidyr)
+
+data_tidy <- gather(RNAseq_raw, gene, count, -SampleID, -Population, -Treatment, -Sex)
+
+head(data_tidy)
+```
+
+
+Okay that looks better, now 'gene' is a categorical variable, and the associated 'counts' were still retained. This will make it easier to visualize the data. 
+
+
+### Histograms
+
+To visualize the gene counts, histograms can be made to show the distribution of counts for each gene using `ggplot`. 
+
+
+```{r}
+ggplot(data = data_tidy, mapping = aes(x = count, fill = gene))+
+  geom_histogram(binwidth = 10)+
+  facet_wrap(~gene, nrow = 2)+
+  theme(legend.position = "none")+ 
+  ggtitle('Frequency of counts across 10 genes')+
+  ylab('Frequency')
+```
+
+
+To perform z-transformation on the data, they can be mean centered and scaled using the `scale()` function. Histograms of the z-transformed counts for just two genes are plotted here.
+
+```{r}
+# Ceci n'est pas une pipe
+library(magrittr)
+
+ztrans <- data_tidy %>% 
+  group_by(gene) %>%
+  do(mutate(., z_trans = scale(.$count,
+                               center = TRUE,
+                               scale = TRUE)))
+
+head(ztrans)
+
+# plot all genes
+ztrans %>% 
+  ggplot(., aes(z_trans, fill = gene))+
+    geom_histogram()+ 
+    facet_wrap('gene', nrow = 2)+
+    theme(legend.position = "none")+
+    ggtitle('Frequency of zscores across 10 genes')+
+    xlab('Z-Score')+
+    ylab('Frequency')
+
+# plot only two genes
+ztrans %>% 
+  filter(gene == 'Gene01' | gene == 'Gene02') %>%
+  ggplot(., aes(z_trans, fill = gene))+
+    geom_histogram()+ 
+    facet_wrap('gene', nrow = 2)+
+    theme(legend.position = "none")+
+    ggtitle('Frequency of zscores for two genes')+
+    xlab('Z-Score')+
+    ylab('Frequency')
+```
+
+
+Very nice. Centering and scaling the data make it a lot easier to see the differences between counts faceted by gene.
+
+
+### Boxplots
+
+It would also be interesting to see how these counts data are distributed with respect to other categorical variables. Let's visuallize this with box plots for the original data, as well as the Z-transformed data. 
+
+
+```{r}
+
+ggplot(data_tidy, aes(gene, count, fill = gene))+
+  geom_boxplot()+
+  facet_wrap(c('Sex', 'Treatment', 'Population'), nrow = 2)+
+  theme(legend.position = "none")+
+  ggtitle('Counts for each gene across Sex, Population, and Treatment')+
+  coord_flip()
+  
+```
+
+
+So much information in one figure! Let's take a look at the Z-transformed counts in this same fashion.
+
+```{r}
+ggplot(ztrans, aes(gene, z_trans, fill = gene))+
+  geom_boxplot()+
+  facet_wrap(c('Sex', 'Treatment', 'Population'), nrow = 2)+
+  theme(legend.position = "none")+
+  ggtitle('Z-scores for each gene across Sex, Population, and Treatment')+
+  ylab('Z-score')+ 
+  coord_flip()
+```
+
+
+It's much easier to see the differences between data groupped by categorical variables when the data have been Z-transformed. 
+
+
+### Summary Table
+let's generate a table of summary statistics for each Population, Sex, and Treatment, at all the gene levels.
+
+```{r}
+library(pander)
+
+summary_sex <- data_tidy %>% 
+  group_by(gene,Sex) %>%
+  summarise_at(., 'count', .funs = c(sex_mean = 'mean', sex_Var = 'var', sex_sd = 'sd'))
+
+summary_pop <- data_tidy %>% 
+  group_by(gene,Population) %>%
+  summarise_at(., 'count', .funs = c(Pop_mean = 'mean', Pop_Var = 'var', Pop_sd = 'sd'))
+
+summary_trt <- data_tidy %>% 
+  group_by(gene,Treatment) %>%
+  summarise_at(., 'count', .funs = c(trt_mean = 'mean', trt_Var = 'var', trt_sd = 'sd'))
+
+summary_by_fctr <- cbind(summary_sex,summary_pop,summary_trt) %>% 
+  .[,-c(6,11)]
+  
+pander(summary_by_fctr)
+
+```
+
+
+## Standard Error and Confidence interval
+
+Here, the standard error and 95% confidence interval are calculated using the parametic, as well as bootstrap resampling approach. The results are compared in a table.
+
+
+```{r}
+library(knitr)
+
+# parametric approach to standard error
+SE_para <- function(x) {
+  l_CI <- mean(x) - (sd(x)/sqrt(length(x)) * qt(0.975, (length(x)-1)))
+  u_CI <- mean(x) + (sd(x)/sqrt(length(x)) * qt(0.975, (length(x)-1)))
+  
+  return(data.frame(mean = mean(x), 
+                    SE = sd(x)/sqrt(length(x)), 
+                    p.ci.lower = l_CI, 
+                    p.ci.upper = u_CI))
+}
+
+
+# Bootstrapped standard error of the mean
+SEM_boot <- function(x) {
+z <- NULL 
+for (i in 1:1000) {
+  xboot <- sample(x, 20, replace = T)
+  z[i] <- mean(xboot)
+}
+SEM <- sd(z)
+CI <- quantile(z,c(0.025,0.975))
+return(data.frame('SEM_bootstr' = SEM, 
+                  bm.lower.ci = CI[1], 
+                  bm.upper.ci = CI[2]))
+}
+
+# Bootstrapped standard error of the variance
+SEV_boot <- function(x) {
+z <- NULL 
+for (i in 1:1000) {
+  xboot <- sample(x, 20, replace = T)
+  z[i] <- var(xboot)
+}
+SEV <- sd(z)
+CI <- quantile(z,c(0.025,0.975))
+return(data.frame('SEV_bootstr' = SEV, 
+                  bv.lower.ci = CI[1], 
+                  bv.upper.ci = CI[2]))
+}
+
+
+data_tidy %>% 
+  group_by(gene) %>% 
+  do(data.frame( 
+    SE_para(.$count), 
+    SEM_boot(.$count), 
+    SEV_boot(.$count))
+    ) %>% kable(.,digits = 2,
+                align = 'c',
+                caption = 'Comparison of parametric and bootstrap resampling approaches to standard error')
+```
+
+These results do show a decrease in the bootstrapped standard error compared to the parametric standard error, with a corresponding narrowing of the 95% confidence interval. The difference however, is fairly small and tells us that the data were more normally distributed than we may have expected and bootstrap resampling parameter estimation may not be necessary in this case.  
+
+## Douglas Fir at Mt. Pisgah 
+
+Plot `Plots with X trees` vs. `Number of Trees in a Plot`, and determine how they are distributed. 
+
+```{r}
+trees <- tbl_df(data.frame('num_trees' = c(0:11), 'num_plots' = c(74,149,228,181,169,84,49,24,19,12,9,4)))
+
+ggplot(trees, aes(num_trees, num_plots))+ 
+  geom_point()+
+  xlab('Number of Trees in a Plot')+
+  ylab('Number of Plots with X trees')+ 
+  ggtitle('Distribution of Plots with X number of Trees')+
+  theme_gray()
+```
+
+These data look to be Poisson distributed! We can calculate the mean number of trees per plot and the variance in the number of trees per plot, which should approach the same number if the data are really Poisson distributed. 
+
+```{r}
+# determine the total number of trees by unpacking these data
+total_trees <- rep(trees$num_trees, trees$num_plots)
+
+# calculate the mean and variance
+mean_trees <- mean(total_trees)
+var(total_trees)
+```
+
+It appears we need more support to test that these data are Poisson distributed, because the calculated mean and variance (of this small dataset) are unequal. Here, a maximum likelihood appraoch is used to estimate the parameter lambda using the poisson equaiton:
+$$P\left( y = r \right) = \frac{{e^{ - \lambda } \lambda ^r }}{{r!}}$$
+
+The 95% confidence interval of estimating this parameter is also calculated, and may tell how acceptable it is that the mean and variance are different. 
+
+
+```{r}
+lambda <- seq(0,9,by = 0.001)
+ln_y <- log((exp(1)^-lambda * lambda^mean_trees) / factorial(mean_trees))
+
+# log likelihood function
+log_like <- data.frame("x" = lambda, "ln_y" = ln_y)
+
+# maximum likelihood estimate
+subset(log_like, ln_y == max(ln_y))
+
+# confidence interval
+CI <- subset(log_like, ln_y>=max(ln_y)-0.00192)
+
+ggplot(log_like, aes(x, ln_y))+
+  geom_line()+
+  geom_vline(xintercept = c(min(CI$x), max(CI$x)), color = 'red') +
+  xlab('Lambda')+
+  ylab('Log likelihood of lambda')+
+  ggtitle('Maximum Likelihood Estimation of Lambda')
+```
+
+The maximum likelihod estimate is 3, which is essentially the sample mean (3.094). The 95% confidence interval of this estimate was approximated at 1.92 log-likelihood units below the maximum, and shows that the sample variance (4.41) is outside the 95% confidence interval for the ML estimate of the parameter lambda. This means that we are not 95% confident that the data are Poisson distributed.
+
+
+
+
+
+
+
+
+
+
+
+
+

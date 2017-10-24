@@ -1,0 +1,219 @@
+---
+title: "IA1"
+author: "Jake VanCampen"
+date: "`r format(Sys.Date(), '%b %d %Y')`"
+output: html_document
+---
+
+
+```{r}
+knitr::opts_chunk$set(message=FALSE, warning = FALSE)
+```
+
+
+## Enriched diet affects zebrafish size
+
+To study the effects of an enriched diet on mean zebrafish size,
+200 freshly hatched zebrafish were taken from the same clutch and randomly assigned to an enriched or a control diet (unenriched). The diet was administered for two months at which point the standard length (mm) and mass (kg) of each fish was measured. Results were compiled in a tab-separated file containing the following columns: "Individual", "Diet", "SL", and "Weight."
+
+
+The following are the hypothesis to be tested in this experiment: 
+
+
+
+$$ H{_0} \text{: Feeding zeebrafish an enriched diet will not affect their mean size after two months}$$ 
+$$ H{_A} \text{: Feeding zebrafish an enriched diet will affect their mean size after two months} $$
+
+
+
+### Exploratory Data Analysis
+
+
+```{r}
+library(tidyverse)
+library(magrittr)
+library(ggpubr)
+library(knitr)
+zfish_raw <- read_tsv('zfish_diet_IA.tsv')
+head(zfish_raw)
+```
+
+
+
+### Histograms 
+
+Let's take a look at some of the ways the data are distributed. First we can look at histograms of continuous variables weight and standard length
+
+```{r}
+ggplot(zfish_raw, aes(fill = Diet))+ 
+  geom_histogram(aes(Weight))+ 
+  facet_wrap(~Diet)+
+  xlab('Weight (kg)')+
+  ggtitle('Weight Distribution by Diet')
+
+
+ggplot(zfish_raw, aes(fill = Diet))+ 
+  geom_histogram(aes(SL))+ 
+  facet_wrap(~Diet)+ 
+  xlab('Standard Length (cm)') + 
+  ggtitle('Standard Length Distribution by Diet') 
+
+```
+
+
+There appears to be a large outlier in the data that is obscuring the distribution of both SL, and Weight. I will remove the outlier from the dataset as shown below: 
+
+```{r}
+zfish_correct <- zfish_raw %>% 
+  filter(., Weight < 4 & SL < 20)
+
+
+# total SL hist colored by diet
+dt_n <- ggplot(zfish_correct, aes(SL, fill = Diet))+
+            geom_histogram(binwidth = 0.05)
+
+
+# SL hist faceted by diet
+dt <- ggplot(zfish_correct, aes(SL, fill = Diet)) + 
+          geom_histogram(binwidth = 0.05)+ 
+          facet_grid(Diet~.)+
+          xlab('Standard Length (cm)') + 
+  theme(
+  strip.background = element_blank(),
+  strip.text.x = element_blank(),
+  strip.text.y = element_blank()
+)
+
+
+# total weight hist colored by diet
+wt_n <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
+            geom_histogram(binwidth = 0.01)+
+            theme(axis.title.y = element_blank())
+  
+# weight hists faceted by diet
+wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) + 
+  geom_histogram(aes(Weight, fill = Diet), binwidth = 0.007) + 
+  facet_grid(Diet~.)+
+  xlab('Weight (kg)') + 
+  theme(
+  strip.background = element_blank(),
+  strip.text.x = element_blank(),
+  strip.text.y = element_blank(),
+  axis.title.y = element_blank()
+)
+
+
+# group figures
+ggarrange(dt_n, wt_n, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Histograms of continuous variables"))
+
+ggarrange(dt, wt, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Histograms of continuous variables split by diet"))
+      
+```
+
+
+Okay that certainly changed the histograms! These data seem to be fairly normally distributed. The histograms of continuous variables split by diet show a positive shift in both continuous variables for the enriched diet compared to the control, let's do some statistics to back this up!
+
+
+### Boxplots
+
+First similar comparisons will be made using boxplots.
+
+```{r}
+bp_d <- ggplot(zfish_correct, aes(Diet, SL, fill = Diet))+ 
+  geom_boxplot()
+
+bp_w <- ggplot(zfish_correct, aes(Diet, Weight, fill = Diet))+ 
+  geom_boxplot()
+
+ggarrange(bp_d, bp_w, common.legend = TRUE, legend = 'right')  %>% annotate_figure(., top = text_grob("Boxplots of zebrafish measurements by diet"))
+```
+
+Again we see the overall increase in both metrics with an enriched diet as compared to the control.
+
+
+### Summary statistics
+
+And a summary table to compare relevant statistics:
+```{r}
+zfish_correct %>% 
+  group_by(Diet) %>%
+  summarise_at(vars(SL, Weight), c('mean', 'median', 'sd')) %>% 
+  kable(., align = 'c', caption = 'Summary statistics for zebra fish measuremnets by diet')
+
+```
+
+
+### T Test
+
+Because the data look to be normally distributed, appear to have equal variances (sd[control] ~= sd[diet]), and occur as independant observations, the distributional assumptions are met to perform a parametric T Test. The T Test will test a difference in the means of the Control and Enriched treatments for both weight, and standard length.
+
+
+```{r}
+
+# T tests for each 
+sl_T <- t.test(zfish_correct$SL ~ zfish_correct$Diet)
+wt_T <- t.test(zfish_correct$Weight ~ zfish_correct$Diet)
+
+
+# format for reporting t test
+t.report <- function(tt){
+  tvalue <- tt$statistic %>% formatC(digits = 2, format = "f")
+  pvalue <- tt$p.value %>% formatC(digits = 2, format = "E")
+  if (round(tt$parameter, 0) == tt$parameter) {
+    df <- tt$parameter
+  } else {
+    df <- formatC(tt$parameter, digits = 2, format = "f")
+  }
+  if (tt$p.value < 0.0005) {
+    pvalue <- " < 0.001" 
+  } else { 
+    if (tt$p.value < 0.005) {
+      pvalue <- paste0(" = ",tt$p.value %>% formatC(., digits = 3, format = "f"))
+    } else {
+      pvalue <- paste0(" = ",tt$p.value %>% formatC(., digits = 2, format = "f"))
+    }
+    } 
+  paste0("*t*(",df,") = ",tvalue, ", *p*", pvalue)
+  }
+```
+
+
+Here it is shown that zebrafish have a significantly higher standard length when fed an enriched diet as compared to a normal diet `r t.report(sl_T)`, and have a significantly higher weight when fed an enriched diet as compared to a normal diet `r t.report(wt_T)`, and the null hypothesis can be rejected for both continuous variables.
+
+
+### Non-parametric T test
+
+The hypothesis testing can be done using a non-parametric parameter estimation (calculated by resampling of the means) and then performing a T-test. This resampling will cooerce the distribution of the parameter estimate into normality (if the data are not already normally distributed) before performing hypothesis tests, such that our confidence interval about the the hypothesis test is valid. 
+
+```{r}
+
+sl <- zfish_correct$SL
+wt <- zfish_correct$Weight
+
+# bootstrap_means func
+boot <- function(x) {
+z <- NULL 
+for (i in 1:1000) {
+  xboot <- sample(x, 20, replace = T)
+  z[i] <- mean(xboot)
+}
+Mean <- mean(z)
+SEM <- sd(z)
+CI <- quantile(z,c(0.025,0.975))
+return(list(tbl_df(data.frame('Mean' = Mean,
+                  'SEM' = SEM, 
+                  bm.lower.ci = CI[1], 
+                  bm.upper.ci = CI[2])), tbl_df(data.frame(z))))
+}
+
+means <- boot(sl)[2]
+means$z
+
+```
+
+
+
+
+
+
+
