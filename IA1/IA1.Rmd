@@ -2,7 +2,7 @@
 title: "IA1"
 author: "Jake VanCampen"
 date: "`r format(Sys.Date(), '%b %d %Y')`"
-output: html_document
+output: pdf_document
 ---
 
 
