@@ -21,19 +21,20 @@ The following are the hypothesis to be tested in this experiment:
 
 
 
-$$ H{_0} \text{: Feeding zeebrafish an enriched diet will not affect their mean size after two months}$$ 
-$$ H{_A} \text{: Feeding zebrafish an enriched diet will affect their mean size after two months} $$
+$$ H{_0} \text{: Feeding zeebrafish an enriched diet will not significantly affect their mean size after two months}$$ 
+$$ H{_A} \text{: Feeding zebrafish an enriched diet will significantly affect their mean size after two months} $$
 
 
 
 ### Exploratory Data Analysis
-
 
 ```{r}
 library(tidyverse)
 library(magrittr)
 library(ggpubr)
 library(knitr)
+library(lmodel2)
+library(broom)
 zfish_raw <- read_tsv('zfish_diet_IA.tsv')
 head(zfish_raw)
 ```
@@ -45,6 +46,7 @@ head(zfish_raw)
 Let's take a look at some of the ways the data are distributed. First we can look at histograms of continuous variables weight and standard length
 
 ```{r}
+
 ggplot(zfish_raw, aes(fill = Diet))+ 
   geom_histogram(aes(Weight))+ 
   facet_wrap(~Diet)+
@@ -61,7 +63,7 @@ ggplot(zfish_raw, aes(fill = Diet))+
 ```
 
 
-There appears to be a large outlier in the data that is obscuring the distribution of both SL, and Weight. I will remove the outlier from the dataset as shown below: 
+There appear to be erroneous data that is obscuring the distribution of both SL, and Weight. I will remove the obvious errors from the dataset as shown below: 
 
 ```{r}
 zfish_correct <- zfish_raw %>% 
@@ -135,17 +137,20 @@ Again we see the overall increase in both metrics with an enriched diet as compa
 
 And a summary table to compare relevant statistics:
 ```{r}
-zfish_correct %>% 
+Summ_stats <- zfish_correct %>% 
   group_by(Diet) %>%
-  summarise_at(vars(SL, Weight), c('mean', 'median', 'sd')) %>% 
-  kable(., align = 'c', caption = 'Summary statistics for zebra fish measuremnets by diet')
+  summarise_at(vars(SL, Weight), c('mean', 'sd', 'var'))
+
+kable(Summ_stats, align = 'c', caption = 'Summary statistics for zebra fish measuremnets by diet')
+
+
 
 ```
 
 
 ### T Test
 
-Because the data look to be normally distributed, appear to have equal variances (sd[control] ~= sd[diet]), and occur as independant observations, the distributional assumptions are met to perform a parametric T Test. The T Test will test a difference in the means of the Control and Enriched treatments for both weight, and standard length.
+Because the data look to be normally distributed, appear to have equal variances (var[control] ~= var[diet]), and occur as independant observations, the distributional assumptions are met to perform a parametric T Test. The T Test will test a difference in the means of the Control and Enriched treatments for both weight, and standard length.
 
 
 ```{r}
@@ -178,17 +183,13 @@ t.report <- function(tt){
 ```
 
 
-Here it is shown that zebrafish have a significantly higher standard length when fed an enriched diet as compared to a normal diet `r t.report(sl_T)`, and have a significantly higher weight when fed an enriched diet as compared to a normal diet `r t.report(wt_T)`, and the null hypothesis can be rejected for both continuous variables.
-
+Now the statement can be made that zebrafish have a significantly higher standard length when fed an enriched diet as compared to a normal diet, `r t.report(sl_T)`, and have a significantly higher weight when fed an enriched diet as compared to a normal diet, `r t.report(wt_T)`. The null hypothesis that there is no significant effect of an enriched diet on mean fish size can be rejected. 
 
 ### Non-parametric T test
 
 The hypothesis testing can be done using a non-parametric parameter estimation (calculated by resampling of the means) and then performing a T-test. This resampling will cooerce the distribution of the parameter estimate into normality (if the data are not already normally distributed) before performing hypothesis tests, such that our confidence interval about the the hypothesis test is valid. 
 
 ```{r}
-
-sl <- zfish_correct$SL
-wt <- zfish_correct$Weight
 
 # bootstrap_means func
 boot <- function(x) {
@@ -206,13 +207,138 @@ return(list(tbl_df(data.frame('Mean' = Mean,
                   bm.upper.ci = CI[2])), tbl_df(data.frame(z))))
 }
 
-means <- boot(sl)[2]
-means$z
+Control <- zfish_correct %>% filter(., Diet == 'Control')
+Enriched <- zfish_correct %>% filter(., Diet == 'Enriched') 
+
+# Standard length stats and distribtion
+sl_bootC_st <- boot(Control$SL)[1] 
+sl_bootC_dist <- boot(Control$SL)[2]
+
+sl_bootE_st <- boot(Enriched$SL)[1]
+sl_bootE_dist <- boot(Enriched$SL)[2]
+
+# combine
+sl_bootC <- tbl_df(data.frame(sl_bootC_dist, rep('Control', 1000)))
+colnames(sl_bootC) <-  c('boot_means_sl', 'Treatment')
+
+
+sl_bootE <- tbl_df(data.frame(sl_bootE_dist, rep('Enriched', 1000)))
+colnames(sl_bootE) <-  c('boot_means_sl', 'Treatment')
+
+# stack
+sl_boot <- rbind(sl_bootC, sl_bootE)
+
+# Weight stats and distribution
+wt_bootC_st <- boot(Control$Weight)[1] 
+wt_bootC_dist <- boot(Control$Weight)[2]
+
+wt_bootE_st <- boot(Enriched$Weight)[1]
+wt_bootE_dist <- boot(Enriched$Weight)[2]
+
+#combine
+wt_bootC <- tbl_df(data.frame(wt_bootC_dist, rep('Control', 1000)))
+colnames(wt_bootC) <-  c('boot_means_wt', 'Treatment')
+
+wt_bootE <- tbl_df(data.frame(wt_bootE_dist, rep('Enriched', 1000)))
+colnames(wt_bootE) <-  c('boot_means_wt', 'Treatment')
+
+
+# stack 
+wt_boot <- rbind(wt_bootC, wt_bootE)
+
+
+# plot resamples means for standard length
+resampled_sl <- ggplot(sl_boot, aes(boot_means_sl, fill = Treatment))+
+  geom_histogram()+
+  xlab('Standard Length (cm)')+ 
+  geom_vline(xintercept = sl_bootE_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootE_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootC_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootC_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") + 
+  geom_vline(xintercept = Summ_stats$SL_mean, color = 'green')
+
+
+
+resampled_wt <- ggplot(wt_boot, aes(boot_means_wt, fill = Treatment))+
+  geom_histogram()+
+  xlab('Weight (kg)')+ 
+  geom_vline(xintercept = wt_bootE_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootE_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootC_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootC_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
+  geom_vline(xintercept = Summ_stats$Weight_mean, color = 'green') +
+  theme(
+    axis.title.y = element_blank()
+  )
+  
+
+
+ggarrange(resampled_sl, resampled_wt, common.legend = TRUE) %>% annotate_figure(., top = text_grob("Histograms of the resampled means with confidence intervals"))
+```
+
+### SL AND WEIGHT
+
+```{r}
+
+#type I model fit 
+zfish_lm <- lm(zfish_correct$Weight~zfish_correct$SL)
+b <- format(data.frame(tidy(zfish_lm))$estimate[1],digit = 3) 
+m <- format(data.frame(tidy(zfish_lm))$estimate[2],digits = 3)
+glance(zfish_lm)
+r2 <- format(data.frame(glance(zfish_lm)$r.squared)[[1]], digits = 3)
+
+eq <- paste("y=", m, "x +", b,',', 'r2', "=", r2)
+
+
+# plot the relationship between standard lenght and weight
+corr <- ggplot(zfish_correct, aes(zfish_correct$Weight,
+                          zfish_correct$SL,
+                          color = Diet)) + 
+  geom_point() + 
+  geom_smooth(method = 'lm', color = 'black', size = 0.5) + 
+  xlab('Standard Length (cm)') + 
+  ylab('Weight (kg)')+
+  annotate('text',x = 0.65, y = 6, label = eq)
+
+sl_dens <- ggdensity(zfish_correct, 'SL', fill = 'Diet') + clean_theme()
+
+wt_dens <- ggdensity(zfish_correct, 'Weight', fill = 'Diet') + rotate() + clean_theme() 
+
+# Arranging the plot
+ggarrange(sl_dens, NULL, corr, wt_dens, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(2, 1), heights = c(1, 2),
+          common.legend = TRUE, legend = 'bottom') %>% annotate_figure(top = text_grob('The relationship between Weight and Standard length over a change in diet', size = 14))
+
+
+# combine residuals vs. fitted values
+res <- tbl_df(data.frame(cbind(zfish_lm$residuals, zfish_lm$fitted.values)))
+
+ggplot(res, aes(X2,X1)) +
+  geom_point() +
+  geom_smooth(mode = 'lm') +
+  xlab('Fitted Values')+
+  ylab('Residuals')+
+  ggtitle('Residual analysis of the relationship between weight and standard length')
+
+
+
+# type II model fit
+zfish_lm2 <- lmodel2(zfish_correct$Weight~zfish_correct$SL)
+tidy(zfish_lm2)
+glance(zfish_lm2)
+
+
+ggplot(tidy(zfish_lm2), aes(estimate, term, color = method)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+
+  tidy(zfish_lm2)
 
 ```
 
-
-
+There is a significant relationship between Weight(kg) and Standard Length (cm) *F*<sub>1,196</sub> = 1643, *p* < 0.001
 
 
 
