@@ -13,8 +13,7 @@ knitr::opts_chunk$set(message=FALSE, warning = FALSE)
 
 ## Enriched diet affects zebrafish size
 
-To study the effects of an enriched diet on mean zebrafish size,
-200 freshly hatched zebrafish were taken from the same clutch and randomly assigned to an enriched or a control diet (unenriched). The diet was administered for two months at which point the standard length (mm) and mass (kg) of each fish was measured. Results were compiled in a tab-separated file containing the following columns: "Individual", "Diet", "SL", and "Weight."
+To study the effects of an enriched diet on mean zebrafish size, 200 freshly hatched zebrafish were taken from the same clutch and randomly assigned to an enriched or a control diet (unenriched). The diet was administered for two months at which point the standard length (mm) and mass (mg) of each fish was measured. Results were compiled in a tab-separated file containing the following columns: "Individual", "Diet", "SL", and "Weight."
 
 
 The following are the hypothesis to be tested in this experiment: 
@@ -43,27 +42,31 @@ head(zfish_raw)
 
 ### Histograms 
 
-Let's take a look at some of the ways the data are distributed. First we can look at histograms of continuous variables weight and standard length
+To look at how these data are distributed, histograms of the continuous variables were plotted. 
 
 ```{r}
 
 ggplot(zfish_raw, aes(fill = Diet))+ 
   geom_histogram(aes(Weight))+ 
   facet_wrap(~Diet)+
-  xlab('Weight (kg)')+
+  xlab('Weight (mg)')+
   ggtitle('Weight Distribution by Diet')
 
 
 ggplot(zfish_raw, aes(fill = Diet))+ 
   geom_histogram(aes(SL))+ 
   facet_wrap(~Diet)+ 
-  xlab('Standard Length (cm)') + 
+  xlab('Standard Length (mm)') + 
   ggtitle('Standard Length Distribution by Diet') 
 
 ```
 
 
-There appear to be erroneous data that is obscuring the distribution of both SL, and Weight. I will remove the obvious errors from the dataset as shown below: 
+
+There appear to be erroneous data that is obscuring the distribution of both SL, and Weight. 
+These data were removed as shown below, and histograms of the continuous variables are plotted again. 
+
+
 
 ```{r}
 zfish_correct <- zfish_raw %>% 
@@ -79,9 +82,9 @@ dt_n <- ggplot(zfish_correct, aes(SL, fill = Diet))+
 dt <- ggplot(zfish_correct, aes(SL, fill = Diet)) + 
           geom_histogram(binwidth = 0.05)+ 
           facet_grid(Diet~.)+
-          xlab('Standard Length (cm)') + 
+          xlab('Standard Length (mm)') + 
   theme(
-  strip.background = element_blank(),
+  strip.bammground = element_blank(),
   strip.text.x = element_blank(),
   strip.text.y = element_blank()
 )
@@ -96,9 +99,9 @@ wt_n <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
 wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) + 
   geom_histogram(aes(Weight, fill = Diet), binwidth = 0.007) + 
   facet_grid(Diet~.)+
-  xlab('Weight (kg)') + 
+  xlab('Weight (mg)') + 
   theme(
-  strip.background = element_blank(),
+  strip.bammground = element_blank(),
   strip.text.x = element_blank(),
   strip.text.y = element_blank(),
   axis.title.y = element_blank()
@@ -106,14 +109,14 @@ wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
 
 
 # group figures
-ggarrange(dt_n, wt_n, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Histograms of continuous variables"))
+ggarrange(dt_n, wt_n, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions"))
 
-ggarrange(dt, wt, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Histograms of continuous variables split by diet"))
-      
+ggarrange(dt, wt, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions by Diet")) 
+ggsave('Hists.png')    
 ```
 
 
-Okay that certainly changed the histograms! These data seem to be fairly normally distributed. The histograms of continuous variables split by diet show a positive shift in both continuous variables for the enriched diet compared to the control, let's do some statistics to back this up!
+Without the obvious data errors, these data look normally distributed. The histograms of continuous variables split by diet show a positive shift in both continuous variables for the enriched diet compared to the control, let's do some statistics to back this up!
 
 
 ### Boxplots
@@ -122,12 +125,24 @@ First similar comparisons will be made using boxplots.
 
 ```{r}
 bp_d <- ggplot(zfish_correct, aes(Diet, SL, fill = Diet))+ 
-  geom_boxplot()
+  geom_boxplot() + 
+  ylab('Standard Length (mm)')+
+  theme(
+    axis.title.x = element_blank()
+  )
 
 bp_w <- ggplot(zfish_correct, aes(Diet, Weight, fill = Diet))+ 
-  geom_boxplot()
+  geom_boxplot()+ 
+  ylab('Weight (mg)')+
+  theme( 
+    axis.title.x = element_blank()
+    )
 
-ggarrange(bp_d, bp_w, common.legend = TRUE, legend = 'right')  %>% annotate_figure(., top = text_grob("Boxplots of zebrafish measurements by diet"))
+ggarrange(bp_d, bp_w, common.legend = TRUE, legend = 'right')  %>% 
+          annotate_figure(., 
+                          top = text_grob(
+                          "Boxplots of zebrafish measurements by diet"), 
+                          bottom = text_grob('Diet'))
 ```
 
 Again we see the overall increase in both metrics with an enriched diet as compared to the control.
@@ -141,9 +156,10 @@ Summ_stats <- zfish_correct %>%
   group_by(Diet) %>%
   summarise_at(vars(SL, Weight), c('mean', 'sd', 'var'))
 
-kable(Summ_stats, align = 'c', caption = 'Summary statistics for zebra fish measuremnets by diet')
-
-
+kable(Summ_stats, 
+      align = 'c', 
+      caption = 'Summary statistics for zebra fish measuremnets by diet', 
+      digits = 3)
 
 ```
 
@@ -173,9 +189,13 @@ t.report <- function(tt){
     pvalue <- " < 0.001" 
   } else { 
     if (tt$p.value < 0.005) {
-      pvalue <- paste0(" = ",tt$p.value %>% formatC(., digits = 3, format = "f"))
+      pvalue <- paste0(" = ",
+                       tt$p.value %>% 
+                         formatC(., digits = 3, format = "f"))
     } else {
-      pvalue <- paste0(" = ",tt$p.value %>% formatC(., digits = 2, format = "f"))
+      pvalue <- paste0(" = ",
+                       tt$p.value %>% 
+                         formatC(., digits = 2, format = "f"))
     }
     } 
   paste0("*t*(",df,") = ",tvalue, ", *p*", pvalue)
@@ -250,31 +270,47 @@ wt_boot <- rbind(wt_bootC, wt_bootE)
 # plot resamples means for standard length
 resampled_sl <- ggplot(sl_boot, aes(boot_means_sl, fill = Treatment))+
   geom_histogram()+
-  xlab('Standard Length (cm)')+ 
-  geom_vline(xintercept = sl_bootE_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootE_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootC_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootC_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") + 
-  geom_vline(xintercept = Summ_stats$SL_mean, color = 'green')
+  xlab('Standard Length (mm)')+ 
+  geom_vline(xintercept = sl_bootE_st[[1]]$bm.lower.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootE_st[[1]]$bm.upper.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootC_st[[1]]$bm.lower.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = sl_bootC_st[[1]]$bm.upper.ci, 
+             color = 'red', linetype="dotted") + 
+  geom_vline(xintercept = Summ_stats$SL_mean, 
+             color = 'green')
 
 
 
 resampled_wt <- ggplot(wt_boot, aes(boot_means_wt, fill = Treatment))+
   geom_histogram()+
-  xlab('Weight (kg)')+ 
-  geom_vline(xintercept = wt_bootE_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootE_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootC_st[[1]]$bm.lower.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootC_st[[1]]$bm.upper.ci, color = 'red', linetype="dotted") +
-  geom_vline(xintercept = Summ_stats$Weight_mean, color = 'green') +
+  xlab('Weight (mg)')+ 
+  geom_vline(xintercept = wt_bootE_st[[1]]$bm.lower.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootE_st[[1]]$bm.upper.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootC_st[[1]]$bm.lower.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = wt_bootC_st[[1]]$bm.upper.ci, 
+             color = 'red', linetype="dotted") +
+  geom_vline(xintercept = Summ_stats$Weight_mean, 
+             color = 'green') +
   theme(
     axis.title.y = element_blank()
   )
   
 
 
-ggarrange(resampled_sl, resampled_wt, common.legend = TRUE) %>% annotate_figure(., top = text_grob("Histograms of the resampled means with confidence intervals"))
+ggarrange(resampled_sl, resampled_wt, common.legend = TRUE) %>% 
+          annotate_figure(., 
+                          top = text_grob("Histograms of the resampled \
+                                          means with confidence intervals"))
 ```
+
+The green lines show the parametric estimate of the mean, well bound by the confidence intervals for the resampled estimate. This shows that the assumptions are met for a parametric assesment of the means, validating the original t test.
+
 
 ### SL AND WEIGHT
 
@@ -296,19 +332,26 @@ corr <- ggplot(zfish_correct, aes(zfish_correct$Weight,
                           color = Diet)) + 
   geom_point() + 
   geom_smooth(method = 'lm', color = 'black', size = 0.5) + 
-  xlab('Standard Length (cm)') + 
-  ylab('Weight (kg)')+
+  xlab('Standard Length (mm)') + 
+  ylab('Weight (mg)')+
   annotate('text',x = 0.65, y = 6, label = eq)
 
-sl_dens <- ggdensity(zfish_correct, 'SL', fill = 'Diet') + clean_theme()
+sl_dens <- ggdensity(zfish_correct, 'SL', fill = 'Diet') +
+           clean_theme()
 
-wt_dens <- ggdensity(zfish_correct, 'Weight', fill = 'Diet') + rotate() + clean_theme() 
+wt_dens <- ggdensity(zfish_correct, 'Weight', fill = 'Diet') + 
+           rotate() + clean_theme() 
 
 # Arranging the plot
 ggarrange(sl_dens, NULL, corr, wt_dens, 
           ncol = 2, nrow = 2,  align = "hv", 
           widths = c(2, 1), heights = c(1, 2),
-          common.legend = TRUE, legend = 'bottom') %>% annotate_figure(top = text_grob('The relationship between Weight and Standard length over a change in diet', size = 14))
+          common.legend = TRUE, legend = 'bottom') %>% 
+          annotate_figure(
+            top = text_grob(
+            'The relationship between Weight and \
+            Standard length over a change in diet',
+            size = 14))
 
 
 # combine residuals vs. fitted values
@@ -319,7 +362,8 @@ ggplot(res, aes(X2,X1)) +
   geom_smooth(mode = 'lm') +
   xlab('Fitted Values')+
   ylab('Residuals')+
-  ggtitle('Residual analysis of the relationship between weight and standard length')
+  ggtitle('Residual analysis of the relationship\
+          between weight and standard length')
 
 
 
@@ -338,7 +382,7 @@ ggplot(tidy(zfish_lm2), aes(estimate, term, color = method)) +
 
 ```
 
-There is a significant relationship between Weight(kg) and Standard Length (cm) *F*<sub>1,196</sub> = 1643, *p* < 0.001
+There is a significant relationship between Weight(mg) and Standard Length (mm) *F*<sub>1,196</sub> = 1643, *p* < 0.001
 
 
 
