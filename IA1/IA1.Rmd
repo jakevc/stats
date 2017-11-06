@@ -1,8 +1,10 @@
 ---
 title: "IA1"
 author: "Jake VanCampen"
-date: "`r format(Sys.Date(), '%b %d %Y')`"
-output: pdf_document
+date: '`r format(Sys.Date(), "%b %d %Y")`'
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 
@@ -84,7 +86,6 @@ dt <- ggplot(zfish_correct, aes(SL, fill = Diet)) +
           facet_grid(Diet~.)+
           xlab('Standard Length (mm)') + 
   theme(
-  strip.bammground = element_blank(),
   strip.text.x = element_blank(),
   strip.text.y = element_blank()
 )
@@ -101,7 +102,6 @@ wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
   facet_grid(Diet~.)+
   xlab('Weight (mg)') + 
   theme(
-  strip.bammground = element_blank(),
   strip.text.x = element_blank(),
   strip.text.y = element_blank(),
   axis.title.y = element_blank()
@@ -112,7 +112,6 @@ wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
 ggarrange(dt_n, wt_n, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions"))
 
 ggarrange(dt, wt, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions by Diet")) 
-ggsave('Hists.png')    
 ```
 
 
@@ -211,105 +210,107 @@ The hypothesis testing can be done using a non-parametric parameter estimation (
 
 ```{r}
 
-# bootstrap_means func
-boot <- function(x) {
-z <- NULL 
-for (i in 1:1000) {
-  xboot <- sample(x, 20, replace = T)
-  z[i] <- mean(xboot)
-}
-Mean <- mean(z)
-SEM <- sd(z)
-CI <- quantile(z,c(0.025,0.975))
-return(list(tbl_df(data.frame('Mean' = Mean,
-                  'SEM' = SEM, 
-                  bm.lower.ci = CI[1], 
-                  bm.upper.ci = CI[2])), tbl_df(data.frame(z))))
-}
+# bootstrap resampling of the t statistic
 
+# filter control and enriched
 Control <- zfish_correct %>% filter(., Diet == 'Control')
 Enriched <- zfish_correct %>% filter(., Diet == 'Enriched') 
 
-# Standard length stats and distribtion
-sl_bootC_st <- boot(Control$SL)[1] 
-sl_bootC_dist <- boot(Control$SL)[2]
 
-sl_bootE_st <- boot(Enriched$SL)[1]
-sl_bootE_dist <- boot(Enriched$SL)[2]
-
-# combine
-sl_bootC <- tbl_df(data.frame(sl_bootC_dist, rep('Control', 1000)))
-colnames(sl_bootC) <-  c('boot_means_sl', 'Treatment')
-
-
-sl_bootE <- tbl_df(data.frame(sl_bootE_dist, rep('Enriched', 1000)))
-colnames(sl_bootE) <-  c('boot_means_sl', 'Treatment')
-
-# stack
-sl_boot <- rbind(sl_bootC, sl_bootE)
-
-# Weight stats and distribution
-wt_bootC_st <- boot(Control$Weight)[1] 
-wt_bootC_dist <- boot(Control$Weight)[2]
-
-wt_bootE_st <- boot(Enriched$Weight)[1]
-wt_bootE_dist <- boot(Enriched$Weight)[2]
-
-#combine
-wt_bootC <- tbl_df(data.frame(wt_bootC_dist, rep('Control', 1000)))
-colnames(wt_bootC) <-  c('boot_means_wt', 'Treatment')
-
-wt_bootE <- tbl_df(data.frame(wt_bootE_dist, rep('Enriched', 1000)))
-colnames(wt_bootE) <-  c('boot_means_wt', 'Treatment')
+# bootstrap resampling of the standard length
+# generate a null distribution of T-values by 
+# resampling from the same distribution
+t_boot_SL <- NULL
+for (i in 1:10000) {
+  c_new_SL <- sample(Control$SL, 100, replace = T)
+  c_mean_sl <- mean(c_new_SL)
+  c_var_sl <- var(c_new_SL)
+  c_nSL <- length(c_new_SL)
+  
+  e_new_SL <- sample(Control$SL, 100, replace = T)
+  e_mean_sl <- mean(e_new_SL)
+  e_var_sl <- var(e_new_SL)
+  e_nSL <- length(e_new_SL)
+  
+  t_boot_SL[i] <- (c_mean_sl - e_mean_sl) / sqrt(((c_nSL-1)*c_var_sl+(e_nSL-1)*e_var_sl)/(c_nSL+e_nSL)*((1/c_nSL)+(1/e_nSL)))
+}
 
 
-# stack 
-wt_boot <- rbind(wt_bootC, wt_bootE)
+# mean of the null distribution 
+mean(t_boot_SL)
+# bootsrap standard error
+sd(t_boot_SL)
 
-
-# plot resamples means for standard length
-resampled_sl <- ggplot(sl_boot, aes(boot_means_sl, fill = Treatment))+
-  geom_histogram()+
-  xlab('Standard Length (mm)')+ 
-  geom_vline(xintercept = sl_bootE_st[[1]]$bm.lower.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootE_st[[1]]$bm.upper.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootC_st[[1]]$bm.lower.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = sl_bootC_st[[1]]$bm.upper.ci, 
-             color = 'red', linetype="dotted") + 
-  geom_vline(xintercept = Summ_stats$SL_mean, 
-             color = 'green')
+#The approximate 95% Confidence Interavals for t
+CI.l.SL <- quantile(t_boot_SL, 0.025)
+CI.h.SL <- quantile(t_boot_SL, 0.975)
 
 
 
-resampled_wt <- ggplot(wt_boot, aes(boot_means_wt, fill = Treatment))+
-  geom_histogram()+
-  xlab('Weight (mg)')+ 
-  geom_vline(xintercept = wt_bootE_st[[1]]$bm.lower.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootE_st[[1]]$bm.upper.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootC_st[[1]]$bm.lower.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = wt_bootC_st[[1]]$bm.upper.ci, 
-             color = 'red', linetype="dotted") +
-  geom_vline(xintercept = Summ_stats$Weight_mean, 
-             color = 'green') +
-  theme(
-    axis.title.y = element_blank()
-  )
+
+# 
+# bootstrap resampling of the weight
+# generate a null distribution of T-values by 
+# resampling from the same distribution
+t_boot_WT <- NULL
+for (i in 1:10000) {
+  c_new_WT <- sample(Control$Weight, 100, replace = T)
+  c_mean_WT <- mean(c_new_WT)
+  c_var_WT <- var(c_new_WT)
+  c_nWT <- length(c_new_WT)
+  
+  e_new_WT <- sample(Control$Weight, 100, replace = T)
+  e_mean_WT <- mean(e_new_WT)
+  e_var_WT <- var(e_new_WT)
+  e_nWT <- length(e_new_WT)
+  
+  t_boot_WT[i] <- (c_mean_WT - e_mean_WT) / sqrt(((c_nWT-1)*c_var_WT+(e_nWT-1)*e_var_WT)/(c_nWT+e_nWT)*((1/c_nWT)+(1/e_nWT)))
+}
+
+
+# mean of the null distribution 
+mean(t_boot_WT)
+# bootsrap standard error
+sd(t_boot_WT)
+
+#The approximate 95% Confidence Interavals for t
+CI.l.WT <- quantile(t_boot_WT, 0.025)
+CI.h.WT <- quantile(t_boot_WT, 0.975)
+
+
+# emulate ggplot color palate
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+
+# plot the parametric t values along with 
+# null distribution of t-statistics
+t_bootSL <- ggplot(tbl_df(t_boot_SL), aes(value))+
+  geom_histogram(fill = gg_color_hue(2)[1])+
+  geom_vline(xintercept = CI.l.SL, colour = 'blue', linetype = 'longdash')+
+  geom_vline(xintercept = CI.h.SL, color = 'blue', linetype = 'longdash') +
+  geom_vline(xintercept = sl_T$statistic, color = 'red', linetype = 'longdash')+
+  xlab('Standard Length T-values') +
+  ylab('Counts')
+
+  
+t_bootWT <- ggplot(tbl_df(t_boot_WT), aes(value))+
+  geom_histogram(fill = gg_color_hue(2)[2])+
+  geom_vline(xintercept = CI.l.WT, colour = 'blue', linetype = 'longdash')+
+  geom_vline(xintercept = CI.h.WT, color = 'blue', linetype = 'longdash') +
+  geom_vline(xintercept = wt_T$statistic, color = 'red', linetype = 'longdash')+
+  xlab('Weight T-values') +
+  ylab('')
   
 
+ggarrange(t_bootSL, t_bootWT) %>% annotate_figure(top = '10000 resampled T-values for standard length and weight')
 
-ggarrange(resampled_sl, resampled_wt, common.legend = TRUE) %>% 
-          annotate_figure(., 
-                          top = text_grob("Histograms of the resampled \
-                                          means with confidence intervals"))
+
 ```
 
-The green lines show the parametric estimate of the mean, well bound by the confidence intervals for the resampled estimate. This shows that the assumptions are met for a parametric assesment of the means, validating the original t test.
+The distribution of 10000 bootstrapped t-values for a null hypothesis of no difference shows that the upper and lower 95% confidence intervals for t-values accepting the null hypothesis are around 2. Given that the parametric estimate for the null hypothesis is t_SL =`r sl_T$statistic` and t_WT = `r wt_T$statistic` (red dotted lines), the null hypothesis of no difference can be rejected.
 
 
 ### SL AND WEIGHT
