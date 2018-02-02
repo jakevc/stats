@@ -1,0 +1,129 @@
+---
+title: "Short Report 1"
+author: "Jake VanCampen"
+date: "`r format(Sys.Date(), '%d-%b-%Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The following code generates a file containing coin flip trials for 100 coins. The distribution of probabilities of getting a head for each coin, over all coins, roughly follows a beta-binomial distribution. 
+
+```{r}
+set.seed(32)
+ncoins <- 100
+true_alpha <- 3
+true_beta <- 2
+probs <- rbeta(ncoins, shape1=true_alpha, shape2=true_beta)
+nflips <- rnbinom(ncoins, size=5, prob=0.4)
+nheads <- rbinom(ncoins, size=nflips, prob=probs)
+outfile <- file("coin_flips.txt", open="w")
+outliers <- 32
+outlier_num <- c(max(nflips)-1, 1)
+for (k in 1:ncoins) {
+    if (k %in% outliers) {
+        cat(paste0(paste(sample(c(rep("H",outlier_num[1]), rep("T",outlier_num[2]))), collapse=''), "\n"), file=outfile)
+    } else {
+        cat(paste0(paste(sample(c(rep("H",nheads[k]), rep("T",nflips[k]-nheads[k]))), collapse=''), "\n"), file=outfile)
+    }
+}
+close(outfile)
+```
+
+
+The files output appears as follows:
+```{r}
+coin_data <- read.table('coin_flips.txt')
+head(coin_data)
+```
+
+Each row of the file represents a number of trials for a specific coin. The number of characters is the number of flips, and the number of H's is the number of heads for those trials. 
+
+Each coin has a probability of heads, $\theta$, that across all coins should follow a $\beta$ distribution. The shape of the $\beta$, the resulting parameters $\alpha$ and $\beta$ can be estimated using maximum likelihood. 
+
+We need to obtain the list of the proportion of heads flipped per coin. First, the total number of characters can be calculated. 
+
+```{r}
+# all characters 
+total_chars <- nchar(as.character(coin_data$V1))
+```
+
+To obtain the number of heads for the trials, the H's are replaced with nothing and the resulting number of characters is subtracted from the original. Then the probability of getting a head in those trials is calculated. 
+```{r}
+# remove heads
+minus_heads <- nchar(gsub('H', '',as.character(coin_data$V1)))
+
+# number heads per coin
+num_heads <- total_chars - minus_heads
+
+# calculate heads probability
+prob_heads <- (total_chars - minus_heads)/total_chars
+```
+
+
+Let's see how the proportions are distributed...
+```{r}
+hist(prob_heads, breaks = 30)
+```
+
+There are not many trials for each coin, so there is a lack of data to make this distribution very characteristic.
+
+
+To estimate the distribution of probabilities for each coin more clearly, given the konwn data, maximum likelihood can be used to estimate the parameters of the beta-binomial distribution: alpha and beta. 
+
+
+given the probability mass function of the beta-binomial distribution: 
+
+\[
+P(X|Z = z) = \binom{n}{z} \frac{B(k + \alpha, n-z + \beta)}{B(\alpha, \beta)}
+\]
+
+The log likelihood of this function can be optimized to find the parameter values alpha and beta as follows:
+
+```{r}
+
+# define n and z 
+n <- total_chars
+z <- num_heads
+
+# create log likelihood funciton to optimize
+beta_binom_loglike <- function(params, x) {
+  sum(-(lchoose(n,z) + 
+  lbeta(params[1]+z,params[2]+n-z) - 
+  lbeta(params[1], params[2])))
+}
+
+#optimize funciton using the proportion of heads for each coin as input 
+out <- optim(par = c(1,1), fn=beta_binom_loglike, x=prob_heads)
+
+# parameter estimates
+alpha_estimate <- out$par[1]
+beta_estimate <- out$par[2]
+```
+
+The maximum likelihood estimate of the parameters for the underlying beta-distribution are alpha = `r alpha_estimate` and beta = `r beta_estimate`. 
+
+
+How well do the proportions compare to a $\beta$ distribution with the simulated parameter values?
+
+The beta distribution characterized by the estimated alpha and beta parameters is scaled by a factor of 10 for comparison to the histogram of heads proportions (z/n) for each coin.
+```{r}
+x = seq(0, 1, length.out = 100)
+y = 10*dbeta(x,alpha_estimate,beta_estimate)
+
+hist(prob_heads, breaks = 15, main = 'Proportion of heads histogram vs. mle beta estimate', xlab = 'proportion of heads')
+points(x,y, 'l')
+```
+
+
+If you squint hard enough, you could convince yourself that the histogram and the line modeling the maximum likelihood parameter estimate are similar distributions. Given the true_alpha = 3, and true_beta = 2. The MLE estimate is close (`r alpha_estimate`, `r beta_estimate`) respectively.
+
+
+
+
+
+
+
+

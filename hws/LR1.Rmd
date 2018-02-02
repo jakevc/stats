@@ -1,0 +1,633 @@
+---
+title: "Long Report 1"
+author: "Jake VanCampen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+fig.dim <- 3
+knitr::opts_chunk$set(fig.width=2*fig.dim,
+                      fig.height=fig.dim,
+                      fig.align='center',
+                      message=FALSE)
+
+set.seed(23)
+library(tidyverse)
+library(magrittr)
+library(rstan)
+library(ggpubr)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+To analyze the genotyping error in ancient DNA, here I will look at two species of ancient hominids: Altai Neanderthal (75 ka), and Denisovan (50 ka). 
+ 
+Let's take a look at the Raw Data. 
+
+```{r}
+#                      #
+# setwd(/path/to/data) #
+#                      #
+
+# read in the data 
+altai <- read_delim('altai.counts', delim = ' ')
+denis <- read_delim('denisova.counts', delim = ' ')
+
+# take a look 
+head(altai)
+head(denis)
+
+# how many? 
+nrow(denis)
+nrow(altai)
+```
+
+The data are organized by five columns. The first is the 'region', corresponding to either mitochondrial, 'mt', or similar sized regions of nuclear DNA. 
+
+
+Let's take a look at the number of regions evaluated for each species. 
+
+```{r}
+# how many regions?
+altai_groups <- altai %>% 
+  group_by(region) %>% 
+  n_groups(.)
+
+denis_groups <- denis %>% 
+  group_by(region) %>% 
+  n_groups(.)
+```
+
+There are `r altai_groups` for the Altai, and `r denis_groups` for the Denisovan. Next I will explore the number of sites for each region.
+
+```{r}
+# sites per region
+acounts <- altai %>% 
+  group_by(region) %>%
+  count(.)
+
+dcounts <- denis %>% 
+  group_by(region) %>%
+  count(.)
+
+# what's that look like?
+hist(dcounts$n, xlab='number of sites', ylab='frequency by region')
+hist(acounts$n, xlab='number of sites', ylab='frequency by region')
+```
+
+The mitochondrial region 'mt' appears to have 27 more sites than the rest of the groups for Altai and 61 more sites than the rest of the groups for the denisovan. I will remove the first 27 from altai, and the first 61 from the denisovan for evenness of analysis across all regions. I will then sum all base counts across that site.
+
+```{r}
+# calculate coverage
+altai_sums <- altai[28:nrow(altai),] %>% mutate(coverage = rowSums(.[2:5]))
+denis_sums <- denis[62:nrow(denis),] %>% mutate(coverage = rowSums(.[2:5]))
+```
+
+Now there is a column that sums the instances of each base across sites for each region (coverage). The mean coverage for each site in the altai is `r mean(altai_sums$coverage)`, and `r mean(denis_sums$coverage)` in the denisovan. The coverage appears highest for each species in the mitochondrial region,. 
+
+```{r coverage}
+# generate mean coverage for each region Altai
+altai_sums %>% 
+  group_by(region) %>%
+  summarise(mean_altaicov = mean(coverage)) -> altai_cov
+
+# make regions factor levels 
+altai_cov %>% mutate_if(., is.character, as.factor)
+
+# generate mean coverage for each region Denis
+denis_sums %>% 
+  group_by(region) %>%
+  summarise(mean_deniscov = mean(coverage)) -> denis_cov
+
+# make regions factor levels
+denis_cov %>% mutate_if(., is.character, as.factor)
+
+# join on factor levels
+coverage.df <- altai_cov %>% inner_join(denis_cov, by='region')
+
+# reorder levels by increasing region, name 'mt' the 101th region.
+coverage.df$region <- `levels<-`(factor(coverage.df$region), c(1:101)) 
+
+
+# plot the mean coverage by region each 
+ggplot(coverage.df) + 
+  geom_point(aes(region, mean_altaicov, col = 'Neanderthal')) +
+  geom_point(aes(region, mean_deniscov, col = 'Denisovan')) + 
+  ylab('Mean coverage') +
+  xlab('Region') +
+  ggtitle('Mean coverage by region for each individual')
+  coord_flip()
+
+```
+
+It is clear from this plot that the mitochondrial region has much greater coverage than the nuclear regions(1-100).
+
+Okay now that I have a good idea of how the coverage is distributed by region, I would like to look at the error rates in base calls by region for each species. By error rate I mean, how many times out of all possible (coverage) was A called in error. 
+
+First let's combine the dataframes altai, and denis, so that we can manipulate both datasets at the same time. 
+
+```{r big_data}
+# make factor levels 
+altai_sums <- altai_sums %>% mutate_if(is.character, as.factor)
+denis_sums <- denis_sums %>% mutate_if(is.character, as.factor)
+
+# make categorical columns for each individual for merge
+altai_sums <- altai_sums %>% mutate(individual = 'altai')
+denis_sums <- denis_sums %>% mutate(individual = 'denis')
+
+# get total dataframe, and reorder columns
+all_data <- rbind(altai_sums, denis_sums) %>% select(1,7,2,3,4,5,6)
+
+# select the counts of the highest counted base from each row
+base <- apply(all_data[3:6],1,max)
+
+# put these in a new column 'truecounts'
+all_error <- all_data %>% mutate(truecounts = base)
+
+# calculate the error per base 
+all_error <- all_error %>% 
+  mutate(errorA = all_data$A/all_data$coverage,
+         errorT = all_data$T/all_data$coverage,
+         errorC = all_data$C/all_data$coverage,
+         errorG = all_data$G/all_data$coverage)
+
+# get the total error per site 
+all_perror <- all_error %>% mutate(total_error = apply(all_error[9:12],1, function(x) x=1-max(x)))
+
+
+# only keep sites with error less than 0.20 percent, the rest are 'problematic'
+all_perror <- subset(all_perror, all_perror$total_error < 0.20)
+
+
+# replace true base error rates with 0, because they are represented as between 0.995 - 1
+all_perror[9:12][all_perror[9:12] > 0.85] <- 0
+
+# add a column to group by the truebase
+all_perror$truebase <- apply(all_perror[3:6],1,which.max)
+
+```
+
+Now we want to get a good picture of the error grouped by reion/truebase/individual, calculating the mean error, and mean error per base for each combination of these groups.
+
+```{r summary_table}
+
+# calculate the summary table 
+summ_table <- all_perror %>% group_by(region,truebase,individual) %>% summarise_at(., colnames(all_perror)[7:13], mean) %>% ungroup(.)
+
+# now name the columns appropriately  
+colnames(summ_table)[6:10] <- paste('mean_',colnames(all_perror)[9:13],sep='')
+
+# rename the mt factor to be level 101 
+levels(summ_table$region)[levels(summ_table$region) == 'mt'] <- 101
+
+# this summary table will be useful in simulating the stan model
+levs <- c(1:101)
+summ_table <- summ_table %>% 
+  mutate(region = factor(region,levels = levs)) %>%
+  arrange(region)
+
+head(summ_table)
+```    
+
+To get another summary table that will help us get a better intuition for the mean error across the regions, I will generate another summary table below.
+
+```{r another_summary}
+# an ordered mean total summary by region
+another_summ <- all_perror %>% group_by(region) %>% 
+  summarise_at(., 'total_error', mean) %>% 
+  mutate(region = factor(.$region, levels=c(1:100,'mt'))) %>% 
+  arrange(.$region)
+
+# mean error for the mt region
+mean_mt <- another_summ[another_summ$region == 'mt',][2]
+
+# mean error for the nuc region
+mean_nuc <- mean(another_summ[another_summ$region != 'mt',]$total_error)
+
+# plot the error across regions
+plot(another_summ$region, another_summ$total_error, xticks=c(),
+     xlab='region',
+     ylab='mean error',
+     main='Mean error by region for both individuals')
+```
+
+It is clear from the above plot that the mean error for the mitochondrial (region 101) is just less at `r mean_mt` than the mean of the mean error for the nuclear regions at `r mean_nuc`. The plot also shows the interesting trend in increased error for some regions in of the nuclear portion, particularly somewhere between regions 35 and 35, and regions around 70. 
+
+## Simulate the data
+
+Given what we know about the data, let's simulate similar data, so they can be modeled for comparison.
+
+because mean_nuc/mean_mt ~ 1.5, we will simulate error that is about 1.5 times greater overall for the nuclear than for the mitochondrial.
+
+```{r}
+
+# get the true counts for each base
+all_perror <- all_perror %>% mutate( 
+  num_errA = ifelse(all_perror$A == all_perror$truecounts,0,all_perror$A),
+  num_errT = ifelse(all_perror$T == all_perror$truecounts,0,all_perror$T),
+  num_errC = ifelse(all_perror$C == all_perror$truecounts,0,all_perror$C),
+  num_errG = ifelse(all_perror$G == all_perror$truecounts,0,all_perror$G)
+  )
+
+# add the sums accross each 
+sums <- all_perror %>% group_by(region,truebase,individual) %>% summarize_at(., c('num_errA','num_errT','num_errC','num_errG','coverage','truecounts'),sum)
+ 
+# 1.5 times region factor for 800 sites, the last 8 are 'mt'
+regionf <- c(rep(1.5,800),rep(1,8))
+
+# throw in a low key kappa
+kappa <- 200
+
+# mu samples from known total error, times the region factor
+mu <- 0.0015*regionf
+
+# simulate thetas a beta distribution depending on mu and kappa
+theta <- rbeta(808, mu*kappa, (1-mu)*kappa)
+
+# what are the bases
+bases <- c('A','T','C','G')
+
+# create zeros matrix of the known dimension of the data (technically arbitrary)
+sim_data <- data.frame(matrix(0, nrow=nrow(sums), ncol=4))
+
+# one column for each base
+colnames(sim_data) <- bases
+
+# randomly sample from 'bases' the number of times there are rows 
+# and add this column to the dataframe
+sim_data$true_base <- sample(bases,nrow(sim_data),replace=TRUE)
+
+# use the known coverage of the data (given in known dat)
+sim_data$coverage <- as.integer(sums$coverage)
+
+# add individuals in same order as grouping
+sim_data$individual <- sums$individual
+
+# randomly sample the number of bases in error for each column 
+# if the column is the true base, let that one be zero. 
+# else: sample from the previously calculated error (errorA)
+for(i in bases) {
+  sim_data[[i]] <- ifelse(sim_data$true_base == i, 0,
+                          rbinom(nrow(sim_data),size=sums$coverage,
+                          prob=theta)
+  )
+}
+  
+
+
+# calculate the counts for the true base and add that column to DF
+sim_data$true_counts <- sim_data$coverage-rowSums(sim_data[1:4])
+
+# add regions specification
+sim_data$region <- factor(c(1:101))
+```
+
+Stop simulating data here when running stan model, because the columns have zeros for the true base. To simulate original data, uncomment and run the following lines of code!
+
+For each base column, if it's the truebase replace the value with the number of bases for the truebase, else: replace with the current value.
+
+```{r}
+#for(i in bases) {
+# sim_data[[i]] <- ifelse(sim_data$true_base == i, #sim_data$coverage-rowSums(sim_data[1:4]),    sim_data[[i]])
+#  }
+```
+
+
+
+## STAN MODEL 
+
+We can estimate a posterior distribution on both our original data and the simulated data by running various versions of the the following model, where z represents all the bases called in error, and n represents the number of true called bases.
+
+Four models will be run for the given data and it's simulation analog.
+
+1. A posterior distribution on the error in calling a base.
+
+2. A posterior distribution on the error rate for the Denisovam and for the Neanderthal.
+
+3. A posterior distribution on the error rate per base
+
+4. A posterior distribution on the error rate from the nuclear vs. the mitochondrial regions.
+
+
+## 1 (the overall posterior error (theta))
+
+```{r}
+library(rstan)
+
+model <-  "
+data {
+ int N;
+ int z[N];
+ int n[N];
+}
+transformed data {
+ int z_total;
+ int n_total;
+ z_total = sum(z);
+ n_total = sum(n);
+}
+parameters {
+ real<lower=0, upper=1> theta;
+}
+model {
+ z_total ~ binomial(n_total, theta);
+}"
+
+fit1 <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(all_perror),
+                            z=all_perror$coverage-all_perror$truecounts,
+                            n=all_perror$truecounts
+                            ))
+
+fit1_sim <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(sim_data),
+                            z=sim_data$coverage-sim_data$true_counts,
+                            n=sim_data$true_counts
+                            ))
+
+# Posterior distribution on theta for both individuals
+x <- stan_hist(fit1) + xlab('theta') + ggtitle('Posterior overall theta for data')
+y <- stan_hist(fit1_sim) + xlab('theta_sim') + ggtitle('Posterior overall theta for simulated data')
+
+# compare hists
+ggarrange(x,y,nrow=2) 
+```
+
+The simulated theta now looks like a pretty good estimate of the real theta.
+
+
+
+
+## 2 (the overall posterior theta per individual)
+
+```{r}
+# subset alldata for just Neanderthal
+altai <- all_perror %>% subset(., individual == 'altai') 
+
+# subset alldata for just Denisovan
+denis <- all_perror %>% subset(., individual == 'denis') 
+
+
+# estimate Altai posterior overall theta using the same model as before
+fit_altai <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(altai),
+                            z=altai$coverage-altai$truecounts,
+                            n=altai$truecounts
+                            ))
+
+
+# estimate Denisovan posterior overall theta using the same model as before
+fit_denis <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(denis),
+                            z=denis$coverage-denis$truecounts,
+                            n=denis$truecounts
+                            ))
+
+a <- stan_hist(fit_altai) + xlab('theta') + ggtitle('Posterior overall theta for Altai')
+b <- stan_hist(fit_denis) + xlab('theta') + ggtitle('Posterior overall theta for Denis')
+
+ggarrange(a,b,nrow=2)
+```
+
+It looks like the mean estimate of theta for the Altai is slightly larger than the mean estimate of theta for the Denisovan. Let's see how this compares to the simulated data. We expect the relationship to be similar given how the data were simulated from the error rates representedf from each region.
+
+```{r}
+# subset altai_sim 
+altai_sim <- subset(sim_data,sim_data$individual == 'altai')
+
+#subset denis sim
+denis_sim <- subset(sim_data,sim_data$individual == 'denis')
+
+# estimate Altai posterior overall theta using the same model as before
+fit_altai_sim <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(altai_sim),
+                            z=altai_sim$coverage-altai_sim$true_counts,
+                            n=as.numeric(altai_sim$true_counts)
+                            ))
+
+
+# estimate Denisovan posterior overall theta using the same model as before
+fit_denis_sim <- stan(model_code = model, chains=3, iter=10000,
+                  data=list(N=nrow(denis_sim),
+                            z=denis_sim$coverage-denis_sim$true_counts,
+                            n=as.numeric(denis_sim$true_counts)
+                            ))
+
+ggarrange(
+stan_hist(fit_altai_sim) + 
+  xlab('theta') + 
+  ggtitle('Posterior simulated theta for Altai'),
+stan_hist(fit_denis_sim) + 
+  xlab('theta') + 
+  ggtitle('Posterior simulated theta for Denis'),
+nrow=2)
+
+```
+
+Turns out in the simulated data, the denisovan posterior distribution of theta has a larger mean than the posterior distribution of theta for the altai! The discrepency with the real data probably has to do with how the data were summarized by region..
+
+
+## 3 (the posterior distribution on theta for each base)
+
+Now we want to determine if the overall error rate for each base is different, essentially what is the theta for each base? (C)
+
+```{r}
+# use all_perror data with both individuals
+
+# make number in error equal to zero if it's the truebase
+# otherwise number in error equals coverage - not[base]
+all_perror <- all_perror %>% mutate( 
+  num_errA = ifelse(all_perror$A == all_perror$truecounts,0,all_perror$A),
+  num_errT = ifelse(all_perror$T == all_perror$truecounts,0,all_perror$T),
+  num_errC = ifelse(all_perror$C == all_perror$truecounts,0,all_perror$C),
+  num_errG = ifelse(all_perror$G == all_perror$truecounts,0,all_perror$G)
+  )
+  
+
+# specify the model
+model3 <-  "
+data {
+ int N; // number of observations
+ int zA[N]; // number of times A called in error
+ int zT[N]; // number of times T called in error
+ int zC[N]; // '' C ''
+ int zG[N]; // '' G '' 
+ int n[N]; // number of true bases
+}
+transformed data {
+ int zA_total;
+ int zT_total;
+ int zC_total;
+ int zG_total;
+ int n_total;
+
+ zA_total = sum(zA);
+ zT_total = sum(zT);
+ zC_total = sum(zC);
+ zG_total = sum(zG);
+ n_total = sum(n);
+}
+parameters {
+ real<lower=0, upper=1> theta_A; // theta for A
+ real<lower=0, upper=1> theta_T; // '' T
+ real<lower=0, upper=1> theta_C; // '' C
+ real<lower=0, upper=1> theta_G; // '' G
+
+}
+model {
+ zA_total ~ binomial(n_total, theta_A);
+ zT_total ~ binomial(n_total, theta_T);
+ zC_total ~ binomial(n_total, theta_C);
+ zG_total ~ binomial(n_total, theta_G);
+}"
+
+# fit the model
+fit_base_err <- stan(model_code = model3, chains=3, iter=1000,
+                  data=list(N=nrow(all_perror),
+                            zA=all_perror$num_errA,
+                            zT=all_perror$num_errT,
+                            zC=all_perror$num_errC,
+                            zG=all_perror$num_errG,
+                            n=all_perror$truecounts
+                            ))
+
+
+stan_hist(fit_base_err)
+```
+
+Cool, for the whole dataset, the error in calling an A or a T seems to be slightly higher than for calling a C or a G!, let's take a look how this relationship holds in the simulated data. 
+
+```{r}
+# fit the model
+fit_base_err_sim <- stan(model_code = model3, chains=3, iter=1000,
+                  data=list(N=nrow(sim_data),
+                            zA=sim_data$A,
+                            zT=sim_data$T,
+                            zC=sim_data$C,
+                            zG=sim_data$G,
+                            n=as.numeric(sim_data$true_counts)
+                            ))
+
+```
+
+The histograms were kind of hard to compare, so maybe boxplots will be better to compare the distribution of theta for all four bases, simulated, and not simulated.
+
+```{r}
+# extract samples
+samples <- data.frame(extract(fit_base_err))[1:4]
+colnames(samples) <- bases
+samples_sim <- data.frame(extract(fit_base_err_sim))[1:4]
+colnames(samples_sim) <- paste(colnames(samples),'_sim',sep='')
+
+# combine
+all_base <- cbind(samples,samples_sim)
+
+# plot
+boxplot(all_base,ylab='Theta value',main='Simulated vs. true thetas per base',col='blue',las=3)
+
+```
+
+Ahh interesting trend here! For the real data we see the error rates for A and T are higher than for C and G, but for the simulated data the error rates for each base were very similar. The simulation could use some tweaking!
+
+## 4 (posterior distribution on theta per region)
+
+Need a new model to predict the pattern of error by region. We want a posterior distribution on theta for each region.
+
+```{r}
+# we want to replace the factor mt with 101 so that the stan model recoginizes it as numeric # while iterating over positions.
+
+region_data <- all_perror %>% 
+  group_by(region) %>% 
+  summarise_at(., c('coverage','truecounts'),sum) 
+
+region_data_sim <- sim_data %>% 
+  group_by(region) %>%
+  summarise_at(., c('coverage','true_counts'),sum)
+
+region_model <- "
+data {
+    int N;   // number of regions (101)
+    int error[N]; // errors per region (coverage - true)
+    int coverage[N]; // total coverage
+}
+parameters {
+    real<lower=0, upper=1> theta[N];
+    vector<lower=0, upper=1>[N] mu;
+    vector<lower=0>[N] kappa;
+}
+model {
+    theta ~ beta(mu .* kappa, (1 - mu) .* kappa);
+    error ~ binomial(coverage, theta);
+    mu ~ beta(1,1);
+    kappa ~ gamma(0.1,0.1);
+} "
+
+
+# estimate the posterior distribution on theta per region 
+region_fit <- stan(model_code = region_model, chains = 3, iter = 1000,
+                            data =list(N=nrow(region_data),
+                                  coverage=region_data$coverage,
+                                  error=as.numeric(region_data$coverage-region_data$truecounts))
+                )
+
+# same for the simulated data
+region_fit_sim <- stan(model_code = region_model, chains = 3, iter = 1000,
+                            data =list(N=nrow(region_data_sim),
+                                  coverage=region_data_sim$coverage,
+                                  error=as.numeric(region_data_sim$coverage-region_data_sim$true_counts))
+                )
+
+
+# extract data from fit
+thetas <- data.frame(rstan::extract(region_fit)$theta)
+colnames(thetas) <- c(1:101)
+
+# and simulated data
+thetas_sim <- data.frame(rstan::extract(region_fit_sim)$theta)
+colnames(thetas) <- c(1:101)
+
+# melt on columns 
+thetas_melt <- gather(thetas, key = 'region', value = 'error') %>% 
+  as.tibble(.) %>%
+  mutate(region= factor(region, levels=c(1:101))) %>%
+  arrange(region)
+
+# melt on columns 
+thetas_melt_sim <- gather(thetas_sim, key = 'region', value = 'error') %>% 
+  as.tibble(.) %>%
+  mutate(region= factor(region, levels=c(1:101))) %>%
+  arrange(region)
+
+# reorder levels by nuclear, and mitochrondrial
+thetas_melt$region <- `levels<-`(factor(thetas_melt$region), list(mt=c(101), nuc=c(1:100)))
+
+# reorder levels by nuclear, and mitochrondrial
+thetas_melt_sim$region <- `levels<-`(factor(thetas_melt$region), list(mt=c(101), nuc=c(1:100)))
+
+ggplot(thetas_melt)+
+  geom_histogram(aes(error, fill=region), position = position_dodge()) +
+  xlab('Theta') + 
+  ggtitle('Mitochondrial region has smaller distribution \nof error compared to nuclear regions')
+
+ggplot(thetas_melt_sim)+
+  geom_histogram(aes(error, fill=region), position = position_dodge()) +
+  xlab('Theta') + 
+  ggtitle('Mitochondrial vs nuclear regions posterior theta \nfor the simulated data')
+
+```
+
+It appears the mean theta for the mitochondrial region is well below that for the nuclear regions, which follow a much wider distribution, this could be improved maybe with a stronger kappa for the theta simulation. The posterior distribution of thetas for the simulated data, across mitochondrial and nuclear regions follows the same general pattern as the real data, suggesting a reasonable simulation!
+
+Overall, these data suggest higher error rates across the nuclear regions than mitochondrial region. Though sequencing error could account for a significant portion of the error in calling a base, the data suggest a more significant number of difference in the error are associated with regional differences.
+
+The data simulated here allow for a reasonable approximation of the overall error for the dataset, and the per-region error for the dataset, but do not well approximate the errors per individual and the errors per-base. More work is needed to develop a model which accounts for these deficiencies.
+
+
+
+
+
+
+
