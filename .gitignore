@@ -9,5 +9,14 @@
 *.Rhistory
 
 
+display/*
+*.out
+*.log
+*.aux
+*.bbl
+*.blg
+.Rproj.user
+.*.swp
+figure
 
 
