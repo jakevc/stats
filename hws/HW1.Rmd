@@ -17,7 +17,7 @@ An RNA-Seq dataset from two populations of threespine stickleback fish `HW_RNAse
 # load tidyverse packages 
 library(tidyverse)
 
-RNAseq_raw <- read_csv('HW_RNAseq.csv',col_names = TRUE) 
+RNAseq_raw <- read_csv('./Data/HW_RNAseq.csv',col_names = TRUE) 
 ```
 
 To determing how the data were read in by the `{readr} read.csv()` function, the class of the dataset was observed with the `class()` funtion. Then, an initial look at the data.

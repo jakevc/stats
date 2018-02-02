@@ -36,7 +36,7 @@ library(ggpubr)
 library(knitr)
 library(lmodel2)
 library(broom)
-zfish_raw <- read_tsv('zfish_diet_IA.tsv')
+zfish_raw <- read_tsv('./Data/zfish_diet_IA.tsv')
 head(zfish_raw)
 ```
 
