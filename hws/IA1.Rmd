@@ -1,0 +1,390 @@
+---
+title: "IA1"
+author: "Jake VanCampen"
+date: '`r format(Sys.Date(), "%b %d %Y")`'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r}
+knitr::opts_chunk$set(message=FALSE, warning = FALSE)
+```
+
+
+## Enriched diet affects zebrafish size
+
+To study the effects of an enriched diet on mean zebrafish size, 200 freshly hatched zebrafish were taken from the same clutch and randomly assigned to an enriched or a control diet (unenriched). The diet was administered for two months at which point the standard length (mm) and mass (mg) of each fish was measured. Results were compiled in a tab-separated file containing the following columns: "Individual", "Diet", "SL", and "Weight."
+
+
+The following are the hypothesis to be tested in this experiment: 
+
+
+
+$$ H{_0} \text{: Feeding zeebrafish an enriched diet will not significantly affect their mean size after two months}$$ 
+$$ H{_A} \text{: Feeding zebrafish an enriched diet will significantly affect their mean size after two months} $$
+
+
+
+### Exploratory Data Analysis
+
+```{r}
+library(tidyverse)
+library(magrittr)
+library(ggpubr)
+library(knitr)
+library(lmodel2)
+library(broom)
+zfish_raw <- read_tsv('zfish_diet_IA.tsv')
+head(zfish_raw)
+```
+
+
+
+### Histograms 
+
+To look at how these data are distributed, histograms of the continuous variables were plotted. 
+
+```{r}
+
+ggplot(zfish_raw, aes(fill = Diet))+ 
+  geom_histogram(aes(Weight))+ 
+  facet_wrap(~Diet)+
+  xlab('Weight (mg)')+
+  ggtitle('Weight Distribution by Diet')
+
+
+ggplot(zfish_raw, aes(fill = Diet))+ 
+  geom_histogram(aes(SL))+ 
+  facet_wrap(~Diet)+ 
+  xlab('Standard Length (mm)') + 
+  ggtitle('Standard Length Distribution by Diet') 
+
+```
+
+
+
+There appear to be erroneous data that is obscuring the distribution of both SL, and Weight. 
+These data were removed as shown below, and histograms of the continuous variables are plotted again. 
+
+
+
+```{r}
+zfish_correct <- zfish_raw %>% 
+  filter(., Weight < 4 & SL < 20)
+
+
+# total SL hist colored by diet
+dt_n <- ggplot(zfish_correct, aes(SL, fill = Diet))+
+            geom_histogram(binwidth = 0.05)
+
+
+# SL hist faceted by diet
+dt <- ggplot(zfish_correct, aes(SL, fill = Diet)) + 
+          geom_histogram(binwidth = 0.05)+ 
+          facet_grid(Diet~.)+
+          xlab('Standard Length (mm)') + 
+  theme(
+  strip.text.x = element_blank(),
+  strip.text.y = element_blank()
+)
+
+
+# total weight hist colored by diet
+wt_n <- ggplot(zfish_correct, aes(Weight, fill = Diet)) +
+            geom_histogram(binwidth = 0.01)+
+            theme(axis.title.y = element_blank())
+  
+# weight hists faceted by diet
+wt <- ggplot(zfish_correct, aes(Weight, fill = Diet)) + 
+  geom_histogram(aes(Weight, fill = Diet), binwidth = 0.007) + 
+  facet_grid(Diet~.)+
+  xlab('Weight (mg)') + 
+  theme(
+  strip.text.x = element_blank(),
+  strip.text.y = element_blank(),
+  axis.title.y = element_blank()
+)
+
+
+# group figures
+ggarrange(dt_n, wt_n, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions"))
+
+ggarrange(dt, wt, common.legend = TRUE, legend = 'right') %>% annotate_figure(., top = text_grob("Standard Length and Weight Distributions by Diet")) 
+```
+
+
+Without the obvious data errors, these data look normally distributed. The histograms of continuous variables split by diet show a positive shift in both continuous variables for the enriched diet compared to the control, let's do some statistics to back this up!
+
+
+### Boxplots
+
+First similar comparisons will be made using boxplots.
+
+```{r}
+bp_d <- ggplot(zfish_correct, aes(Diet, SL, fill = Diet))+ 
+  geom_boxplot() + 
+  ylab('Standard Length (mm)')+
+  theme(
+    axis.title.x = element_blank()
+  )
+
+bp_w <- ggplot(zfish_correct, aes(Diet, Weight, fill = Diet))+ 
+  geom_boxplot()+ 
+  ylab('Weight (mg)')+
+  theme( 
+    axis.title.x = element_blank()
+    )
+
+ggarrange(bp_d, bp_w, common.legend = TRUE, legend = 'right')  %>% 
+          annotate_figure(., 
+                          top = text_grob(
+                          "Boxplots of zebrafish measurements by diet"), 
+                          bottom = text_grob('Diet'))
+```
+
+Again we see the overall increase in both metrics with an enriched diet as compared to the control.
+
+
+### Summary statistics
+
+And a summary table to compare relevant statistics:
+```{r}
+Summ_stats <- zfish_correct %>% 
+  group_by(Diet) %>%
+  summarise_at(vars(SL, Weight), c('mean', 'sd', 'var'))
+
+kable(Summ_stats, 
+      align = 'c', 
+      caption = 'Summary statistics for zebra fish measuremnets by diet', 
+      digits = 3)
+
+```
+
+
+### T Test
+
+Because the data look to be normally distributed, appear to have equal variances (var[control] ~= var[diet]), and occur as independant observations, the distributional assumptions are met to perform a parametric T Test. The T Test will test a difference in the means of the Control and Enriched treatments for both weight, and standard length.
+
+
+```{r}
+
+# T tests for each 
+sl_T <- t.test(zfish_correct$SL ~ zfish_correct$Diet)
+wt_T <- t.test(zfish_correct$Weight ~ zfish_correct$Diet)
+
+
+# format for reporting t test
+t.report <- function(tt){
+  tvalue <- tt$statistic %>% formatC(digits = 2, format = "f")
+  pvalue <- tt$p.value %>% formatC(digits = 2, format = "E")
+  if (round(tt$parameter, 0) == tt$parameter) {
+    df <- tt$parameter
+  } else {
+    df <- formatC(tt$parameter, digits = 2, format = "f")
+  }
+  if (tt$p.value < 0.0005) {
+    pvalue <- " < 0.001" 
+  } else { 
+    if (tt$p.value < 0.005) {
+      pvalue <- paste0(" = ",
+                       tt$p.value %>% 
+                         formatC(., digits = 3, format = "f"))
+    } else {
+      pvalue <- paste0(" = ",
+                       tt$p.value %>% 
+                         formatC(., digits = 2, format = "f"))
+    }
+    } 
+  paste0("*t*(",df,") = ",tvalue, ", *p*", pvalue)
+  }
+```
+
+
+Now the statement can be made that zebrafish have a significantly higher standard length when fed an enriched diet as compared to a normal diet, `r t.report(sl_T)`, and have a significantly higher weight when fed an enriched diet as compared to a normal diet, `r t.report(wt_T)`. The null hypothesis that there is no significant effect of an enriched diet on mean fish size can be rejected. 
+
+### Non-parametric T test
+
+The hypothesis testing can be done using a non-parametric parameter estimation (calculated by resampling of the means) and then performing a T-test. This resampling will cooerce the distribution of the parameter estimate into normality (if the data are not already normally distributed) before performing hypothesis tests, such that our confidence interval about the the hypothesis test is valid. 
+
+```{r}
+
+# bootstrap resampling of the t statistic
+
+# filter control and enriched
+Control <- zfish_correct %>% filter(., Diet == 'Control')
+Enriched <- zfish_correct %>% filter(., Diet == 'Enriched') 
+
+
+# bootstrap resampling of the standard length
+# generate a null distribution of T-values by 
+# resampling from the same distribution
+t_boot_SL <- NULL
+for (i in 1:10000) {
+  c_new_SL <- sample(Control$SL, 100, replace = T)
+  c_mean_sl <- mean(c_new_SL)
+  c_var_sl <- var(c_new_SL)
+  c_nSL <- length(c_new_SL)
+  
+  e_new_SL <- sample(Control$SL, 100, replace = T)
+  e_mean_sl <- mean(e_new_SL)
+  e_var_sl <- var(e_new_SL)
+  e_nSL <- length(e_new_SL)
+  
+  t_boot_SL[i] <- (c_mean_sl - e_mean_sl) / sqrt(((c_nSL-1)*c_var_sl+(e_nSL-1)*e_var_sl)/(c_nSL+e_nSL)*((1/c_nSL)+(1/e_nSL)))
+}
+
+
+# mean of the null distribution 
+mean(t_boot_SL)
+# bootsrap standard error
+sd(t_boot_SL)
+
+#The approximate 95% Confidence Interavals for t
+CI.l.SL <- quantile(t_boot_SL, 0.025)
+CI.h.SL <- quantile(t_boot_SL, 0.975)
+
+
+
+
+# 
+# bootstrap resampling of the weight
+# generate a null distribution of T-values by 
+# resampling from the same distribution
+t_boot_WT <- NULL
+for (i in 1:10000) {
+  c_new_WT <- sample(Control$Weight, 100, replace = T)
+  c_mean_WT <- mean(c_new_WT)
+  c_var_WT <- var(c_new_WT)
+  c_nWT <- length(c_new_WT)
+  
+  e_new_WT <- sample(Control$Weight, 100, replace = T)
+  e_mean_WT <- mean(e_new_WT)
+  e_var_WT <- var(e_new_WT)
+  e_nWT <- length(e_new_WT)
+  
+  t_boot_WT[i] <- (c_mean_WT - e_mean_WT) / sqrt(((c_nWT-1)*c_var_WT+(e_nWT-1)*e_var_WT)/(c_nWT+e_nWT)*((1/c_nWT)+(1/e_nWT)))
+}
+
+
+# mean of the null distribution 
+mean(t_boot_WT)
+# bootsrap standard error
+sd(t_boot_WT)
+
+#The approximate 95% Confidence Interavals for t
+CI.l.WT <- quantile(t_boot_WT, 0.025)
+CI.h.WT <- quantile(t_boot_WT, 0.975)
+
+
+# emulate ggplot color palate
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+
+# plot the parametric t values along with 
+# null distribution of t-statistics
+t_bootSL <- ggplot(tbl_df(t_boot_SL), aes(value))+
+  geom_histogram(fill = gg_color_hue(2)[1])+
+  geom_vline(xintercept = CI.l.SL, colour = 'blue', linetype = 'longdash')+
+  geom_vline(xintercept = CI.h.SL, color = 'blue', linetype = 'longdash') +
+  geom_vline(xintercept = sl_T$statistic, color = 'red', linetype = 'longdash')+
+  xlab('Standard Length T-values') +
+  ylab('Counts')
+
+  
+t_bootWT <- ggplot(tbl_df(t_boot_WT), aes(value))+
+  geom_histogram(fill = gg_color_hue(2)[2])+
+  geom_vline(xintercept = CI.l.WT, colour = 'blue', linetype = 'longdash')+
+  geom_vline(xintercept = CI.h.WT, color = 'blue', linetype = 'longdash') +
+  geom_vline(xintercept = wt_T$statistic, color = 'red', linetype = 'longdash')+
+  xlab('Weight T-values') +
+  ylab('')
+  
+
+ggarrange(t_bootSL, t_bootWT) %>% annotate_figure(top = '10000 resampled T-values for standard length and weight')
+
+
+```
+
+The distribution of 10000 bootstrapped t-values for a null hypothesis of no difference shows that the upper and lower 95% confidence intervals for t-values accepting the null hypothesis are around 2. Given that the parametric estimate for the null hypothesis is t_SL =`r sl_T$statistic` and t_WT = `r wt_T$statistic` (red dotted lines), the null hypothesis of no difference can be rejected.
+
+
+### SL AND WEIGHT
+
+```{r}
+
+#type I model fit 
+zfish_lm <- lm(zfish_correct$Weight~zfish_correct$SL)
+b <- format(data.frame(tidy(zfish_lm))$estimate[1],digit = 3) 
+m <- format(data.frame(tidy(zfish_lm))$estimate[2],digits = 3)
+glance(zfish_lm)
+r2 <- format(data.frame(glance(zfish_lm)$r.squared)[[1]], digits = 3)
+
+eq <- paste("y=", m, "x +", b,',', 'r2', "=", r2)
+
+
+# plot the relationship between standard lenght and weight
+corr <- ggplot(zfish_correct, aes(zfish_correct$Weight,
+                          zfish_correct$SL,
+                          color = Diet)) + 
+  geom_point() + 
+  geom_smooth(method = 'lm', color = 'black', size = 0.5) + 
+  xlab('Standard Length (mm)') + 
+  ylab('Weight (mg)')+
+  annotate('text',x = 0.65, y = 6, label = eq)
+
+sl_dens <- ggdensity(zfish_correct, 'SL', fill = 'Diet') +
+           clean_theme()
+
+wt_dens <- ggdensity(zfish_correct, 'Weight', fill = 'Diet') + 
+           rotate() + clean_theme() 
+
+# Arranging the plot
+ggarrange(sl_dens, NULL, corr, wt_dens, 
+          ncol = 2, nrow = 2,  align = "hv", 
+          widths = c(2, 1), heights = c(1, 2),
+          common.legend = TRUE, legend = 'bottom') %>% 
+          annotate_figure(
+            top = text_grob(
+            'The relationship between Weight and \
+            Standard length over a change in diet',
+            size = 14))
+
+
+# combine residuals vs. fitted values
+res <- tbl_df(data.frame(cbind(zfish_lm$residuals, zfish_lm$fitted.values)))
+
+ggplot(res, aes(X2,X1)) +
+  geom_point() +
+  geom_smooth(mode = 'lm') +
+  xlab('Fitted Values')+
+  ylab('Residuals')+
+  ggtitle('Residual analysis of the relationship\
+          between weight and standard length')
+
+
+
+# type II model fit
+zfish_lm2 <- lmodel2(zfish_correct$Weight~zfish_correct$SL)
+tidy(zfish_lm2)
+glance(zfish_lm2)
+
+
+ggplot(tidy(zfish_lm2), aes(estimate, term, color = method)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+
+  tidy(zfish_lm2)
+
+```
+
+There is a significant relationship between Weight(mg) and Standard Length (mm) *F*<sub>1,196</sub> = 1643, *p* < 0.001
+
+
+
+

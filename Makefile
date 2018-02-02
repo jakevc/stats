@@ -3,10 +3,7 @@ SHELL := /bin/bash
 
 .PHONY : publish upload all slides hws
 
-all : README.html syllabus.html schedule.html slides hws
-
-slides :
-	$(MAKE) -C slides
+all : README.html 
 
 hws :
 	$(MAKE) -C hws
