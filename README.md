@@ -1,10 +1,14 @@
 # stats
-Repo to hold work for adv biological stats course
 
+My work for adv biological statistics 1.
 
-The first part of this repo holds work from the first semester of advanced biological statistics.
+	* [HW1](https://jakevc.github.io/stats/hws/HW1.html)
+	* [HW2](https://jakevc.github.io/stats/hws/hw2.html)
+	* [IA1](https://jakevc.github.io/stats/hws/IA1.html)
+	* [IA2](https://jakevc.github.io/stats/hws/IA2.html)
 
+My work for adv biological statistics 2.
 
-The second part of this repo holds work from advanced biological statistic 2
-
+	* [SR1]()
+	* [LR1]()
 
