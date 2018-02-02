@@ -11,6 +11,6 @@ Jake VanCampen
 
 ### My work for adv biological statistics 2.
 
-* [SR1](https://jakevc.github.io/stats/hws/IA2.html)
-* [LR1](https://jakevc.github.io/stats/hws/IA2.html)
+* [SR1](https://jakevc.github.io/stats/hws/SR1.html),
+* [LR1](https://jakevc.github.io/stats/hws/LR1.html), Analysis of ancient hominid DNA
 
