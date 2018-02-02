@@ -23,7 +23,7 @@ library(knitr)
 library(broom)
 library(Hmisc)
 
-multi_data <- read_tsv('multivariate-1.tsv')
+multi_data <- read_tsv('./Data/multivariate-1.tsv')
 multi_data
 # 73 X 7 matrix
 ```
@@ -131,7 +131,7 @@ Bacteria were sampled from different known 'levels' of soil type in this experim
 
 library(ggpubr)
 
-biofilm <- read_tsv('biofilm-1.tsv')
+biofilm <- read_tsv('./Data/biofilm-1.tsv')
 biofilm
 
 log10 <- ggplot(biofilm) +
