@@ -260,7 +260,7 @@ var(total_trees)
 ```
 
 It appears we need more support to test that these data are Poisson distributed, because the calculated mean and variance (of this small dataset) are unequal. Here, a maximum likelihood appraoch is used to estimate the parameter lambda using the poisson equaiton:
-$$P\left( y = r \right) = \frac{{e^{ - \lambda } \lambda ^r }}{{r!}}$$
+$$P\left( y = r \right) = \frac{{e^{{ - \lambda }} \lambda ^r }}{{r!}}$$
 
 The 95% confidence interval of estimating this parameter is also calculated, and may tell how acceptable it is that the mean and variance are different. 
 
