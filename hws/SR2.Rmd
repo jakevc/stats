@@ -1,0 +1,15 @@
+
+---
+title: "Short Report 2"
+author: "Jake VanCampen"
+date: "`r format(Sys.Date(), '%d-%b-%Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This report continues to analyze base error coverage data from two ancient individuals, The Neanderthal, and the Denisovan. The question we are interested in answering is does the total coverage vary with nearby GC content, and by how much? Also, how well does our model of this phenomenon fit the data
+
+
