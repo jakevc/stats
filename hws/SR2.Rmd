@@ -7,9 +7,155 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+fig.dim <- 3
+knitr::opts_chunk$set(fig.width=2*fig.dim,
+                      fig.height=fig.dim,
+                      fig.align='center',
+                      message=FALSE)
+
+set.seed(23)
+library(tidyverse)
+library(magrittr)
+library(rstan)
+library(ggpubr)
+library(Rfast)
+library(zoo)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
-This report continues to analyze base error coverage data from two ancient individuals, The Neanderthal, and the Denisovan. The question we are interested in answering is does the total coverage vary with nearby GC content, and by how much? Also, how well does our model of this phenomenon fit the data
+This report continues to analyze base error coverage data from two ancient individuals, The Neanderthal, and the Denisovan. The question we are interested in answering is does the total coverage vary with nearby GC content, and by how much? Also, how well does our model of this phenomenon fit the data.
+
+First I'll read in the data as before, checking out the head of each dataset. 
+
+```{r Read Data}
+denis <- read_delim('Data/denisova.counts', delim = ' ')
+neand <- read_delim('Data/altai.counts', delim = ' ')  
+
+head(denis)
+head(neand)
+```
+
+
+To determine how coverage varies with nearby GC content, first the truebase for each site will be determined, and the GC content for a window of ±K bases can be calculated from the true bases.
+
+```{r}
+# determine the truebase 
+denis$truebase <- apply(denis[2:5], 1, which.max)
+neand$truebase <- apply(neand[2:5], 1, which.max)
+
+# determine the total coverage for each individual
+denis$coverage <- apply(denis[2:5],1,sum)
+neand$coverage <- apply(neand[2:5],1,sum)
+
+# make truebase == 1 if true base is G or C, else make 0
+denis$gc <- ifelse(denis$truebase >= 3,1,0)
+neand$gc <- ifelse(neand$truebase >= 3,1,0)
+```
+
+
+Now we can determine the gc content by taking the rolling mean of the column 'gc', this will be the gc content for the centered sliding window of size k. I will calculate cg content over three values of k: 10, 100, 1000. 
+```{r}
+# Denisovan 
+denis <- denis %>% mutate(rollmean10 = rollmean(denis$gc, 10, fill = NA),
+                          rollmean100 = rollmean(denis$gc, 100, fill = NA),
+                          rollmean1000 = rollmean(denis$gc, 1000, fill = NA))
+
+# sweet, the rolling mean gc content.
+head(denis, 10)
+
+# Neandertahl
+neand <- neand %>% mutate(rollmean10 = rollmean(neand$gc, 10, fill = NA),
+                          rollmean100 = rollmean(neand$gc, 100, fill = NA),
+                          rollmean1000 = rollmean(neand$gc, 1000, fill = NA))
+
+# sweet, the rolling mean gc content.
+head(neand, 10)
+
+```
+
+
+The rolling mean generates k/2 number of NA's for the first k/2 sites and last k/2 sites that cannot be centered for averageing. I will select only rows without NA's then plot the coverage vs, the GC content for each k values.
+
+
+```{r}
+# select non NA columns
+denis_gc <- denis %>% select(., c('region','coverage','rollmean10','rollmean100','rollmean1000')) %>% drop_na()
+
+
+# select non NA columns
+neand_gc <- neand %>% select(., c('region','coverage','rollmean10','rollmean100','rollmean1000')) %>% drop_na()
+
+# samples 500 points from each region
+denis_small <- denis_gc %>% group_by(region) %>% sample_n(., size = 500)
+
+# sample 500 points from each region
+neand_small <- neand_gc %>% group_by(region) %>% sample_n(., size = 500)
+
+# plot coverage vs. the cg content for different k-values (denisovan)
+with(denis_small,{
+  plot(rollmean10, coverage, col='black', 
+       pch=2, xlab='GC content (fraction of k-size window)', main='Denisovan')
+  points(rollmean100, coverage, col='blue', pch=3)
+  points(rollmean1000, coverage, col='orange', pch=4)
+  legend('topleft',legend = c('k=10','k=100','k=1000'),pch=c(2,3,4), col = c('black', 'blue', 'orange'))
+})
+
+# plot coverage (neanderthal)
+with(neand_small,{
+  plot(rollmean10, coverage, col='black', 
+       pch=2, xlab='GC content (fraction of k-size window)', main='Neanderthal')
+  points(rollmean100, coverage, col='blue', pch=3)
+  points(rollmean1000, coverage, col='orange', pch=4)
+  legend('topleft',legend = c('k=10','k=100','k=1000'),pch=c(2,3,4), col = c('black', 'blue', 'orange'))
+})
+
+```
+
+The coverage seems to vary more with GC content for the Neanderthal than for the Denisovan individual. Let's model these count data using stan.
+
+
+```{r}
+gc_mod <- "data {
+    int N; // number of sites
+    vector[N] k10; // gc content within ±K bases
+    vector[N] k100; 
+    vector[N] k1000;
+    int z[N]; // coverage per site 
+}
+parameters {
+    real<lower=0> alpha[N]; // mean coverage
+    real b;
+    real m1;
+    real m2;
+    real m3;
+    real<lower=0> sigma;
+}
+model {
+    vector[N] y;
+    y = b + m1 * k10 + m2 * k100 + m3 * k1000;
+    z ~ poisson_log(alpha); 
+    alpha ~ lognormal(y, sigma); // model noise into the mean
+    b ~ normal(0, 10);
+    m1 ~ normal(0, 10);
+    m2 ~ normal(0, 10);
+    m3 ~ normal(0, 10);
+    sigma ~ normal(0, 10);
+}"
+
+gc_data <- list(N=nrow(neand_small),
+                k10=neand_small$rollmean10,
+                k100=neand_small$rollmean100,
+                k1000=neand_small$rollmean1000,
+                z=neand_small$coverage)
+gc_fit <- stan(model_code = gc_mod, chains = 3, iter = 1000, data = gc_data)
+```
+
+
+
+
+
+
 
 
