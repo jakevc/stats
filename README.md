@@ -9,6 +9,7 @@ Jake VanCampen
 
 ### My work for adv biological statistics 1.
 
+* [Final](https://jakevc.github.io/stats/hws/Final.html), Environmental and genomic influences on host microbe interaction in the threespine stickleback.
 * [IA2](https://jakevc.github.io/stats/hws/IA2.html), Analysis of variance and interaction plots
 * [IA1](https://jakevc.github.io/stats/hws/IA1.html), How does a protein-enriched diet effect mean zebrafish size?
 * [HW2](https://jakevc.github.io/stats/hws/hw2.html), Multiple linear regression with post-hoc, and planned comparisons

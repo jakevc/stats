@@ -1,0 +1,177 @@
+---
+title: "Final"
+author: "Jake VanCampen"
+date: "`r format(Sys.Date(), '%B-%d-%Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+```
+
+_______________________________________________________________________
+
+#### Investigating environmenatal and genetic influences on host-microbe interaction in the threespine stickleback fish, *Gasterosteus aculeatus*.
+
+________________________________________________________________________
+
+
+## Statistical Methods
+
+_______________________________
+
+*Logistic Resgression of Survival* 
+
+The relationship between stickleback survival and population, or stickleback survival and microbiota treatment were first explored by producing boxplots of each combination of predictor and response variables counts in R. The survival response due to population and microbiota was then analyzed with a logistic regression generalized linear model. The model was fit with a logit binomial link distribution due to the binary nature of the response variable, 'survived', with levels 'yes' and 'no'. Analyis of deviance of the predictor variables was determined by testing the model relationship to a chi-square distribution. 
+
+_________________________
+
+
+*Model I factorial ANOVA*
+
+A two-factor, fixed effects anova was used to determine the effect of Population, Microbiota and the interaction of Population and Microbiota, on the concentration of triacylglyceride (TAGs) of whole stickleback fish. Analysis of the interaction of Population and Microbiota was determined by comparing mean ± SEM of each level.
+
+
+_________________________
+
+*Non-metric multidimensional scaling*
+
+RNA-seq data of stickleback gene expression were transformed to determine a Bray  Curtis dissimilarity matrix using the 'vegdist' function. Non-metric multi-dimensional scaling (NMDS) was applied with 'metaMDS' to reduce the dimensionality of the gene expression dissimilarity matrix. Ordination of the factors microbiota, and population was performed with the 'ordiplot' function to visualize their relationship to the non-metric, two-dimensional representation of the expression of 300 genes. Additionaly, permutational analysis of variance (perMANOVA) was performed usig 'adonis' to test for significance in the difference of the predictor variables on the gene transcript dissimilarity. All functions used for these analysis are a part of the R 'VEGAN' package.<sup>1</sup>
+
+## Results
+
+The survival of zebrafish across populations and microbiota treatment reveal a difference in survival between microbiota treatments for both boot lake, and rabbit slough populations (Figure 1). Logistic regression followed by deviance analysis show a significant chi-squared deviance analysis for microbiota (Analysis of Deviance: G<sup>2</sup><sub>1,158</sub> = 5.24, *p* < 0.05). The deviance analysis of population was not found to be significant, (G<sup>2</sup><sub>1,158</sub> = 0.15, *p* = 0.70).
+
+```{r}
+# load useful packages 
+library(tidyverse)
+library(magrittr)
+
+# read in dataset 
+survival_data <- read.table('Gacu_survival_data.tsv', header = T)
+
+# What do these data look like???
+ggplot(survival_data, aes(Survived, ..count.., fill = Microbiota)) +
+  geom_bar(position = position_dodge()) +
+  facet_grid(~Population) +
+  ylab('Counts') +
+  theme_bw()
+
+```
+**Figure 1.** Counts of zebrafish survival by microbiota treatment for Boot lake (Bt) and Rabbit Slough (RS) populations.
+
+
+The concentration of triacylglycerides (TAGs) in whole sticleback fish was visualized with boxplots. Sex appears to have a nigligeable effect on TAGS across microbiota and population levels, though microbiota and population appear significantly different (Figure 2). TAGs were found to be significantly different between microbiota treatments (Fixed-factor ANOVA, F<sub>1,76</sub> = 57.63, *p* = 0), population (F<sub>1,76</sub> = 133.44, *p* = 0), and their interaction (F<sub>1,76</sub> = 230.10, *p* < 0.0001). Analysis of residuals for the anova supported the assumption of variance homogeneity. The interaction plot of the predictor variables shows a clear interaction between microbiota and population (mean ± SEM, Figure 3). 
+
+```{r}
+# read in the data
+lipids <- read_tsv('Gacu_lipids_data.tsv')
+
+# visualize using boxplots
+ggplot(lipids, aes(Microbiota, TAGs, fill = Sex)) + 
+  geom_boxplot() +
+  facet_wrap(~Population) +
+  ylab('Triacylglyceride concentration (ug/kg)') +
+  theme_bw()
+
+
+# look at the difference in means between groups
+TAGs_sum <- lipids %>% 
+  group_by(Microbiota, Population) %>% 
+  summarise(mean = mean(TAGs),
+            sem = sd(TAGs)/sqrt(length(TAGs)))
+
+
+# set error bars 
+bars <- aes(ymin=mean-sem, ymax=mean+sem)
+```
+**Figure 2.** Boxplots of triacylglyceride (TAG) concentration (ug/kg) of whole stickleback fish across sex, and microbiota treatments for each population. 
+
+```{r}
+# Interaction plot of the variables
+ggplot(TAGs_sum, aes(Microbiota, mean, color = Population, group = Population)) +
+      stat_summary(fun.y = mean, geom = 'point')+
+      stat_summary(fun.y = mean, geom = 'line') + 
+      geom_errorbar(bars, width=0.2) +
+      ylab('Triacylglyceride concentration (ug/kg)') +
+      theme_bw()
+```
+**Figure 3.** Interaction plot of mean triacylglyceride (TAG) concentration between groups. Points represent mean ± SEM for each level of population and microbiota treatment. 
+
+Gene expression from intestinal transcriptome of the larval stickleback were analyzed for microbiota and population wise differences by performing non-metric multi-dimensional scaling (NDMS, stress < 0.15) on a Bray Curtis disimilarity matrix, and permutational analysis of variance (perMANOVA). NDMS results show a noticeable difference in the ordination of gene expression dissimilarity by microbiota (Figure 4A, perMANOVA: F<sub>1,46</sub> = 4.45, *p* < 0.001), and population (Figure 4B, perMANOVA: F<sub>1,46</sub> = 8.24, *p* < 0.001).
+
+
+```{r}
+library(vegan)
+library(MASS)
+library(ggpubr)
+
+# read in data
+RNA_seq <- read_tsv('Gacu_rnaseq_data.tsv')
+
+# select gene expression data
+RNA_seq.raw <- RNA_seq[,5:300]
+
+# dissimilarity matrix
+RNA_seq.dis <- vegdist(RNA_seq.raw)
+
+# perform ndms on data
+RNA_seq.mds <- metaMDS(RNA_seq.dis, trace = FALSE, k = 2)
+
+# build datafram with metadata for adonis 
+nMDS1 = RNA_seq.mds$points[,1]
+nMDS2 = RNA_seq.mds$points[,2]
+Population = RNA_seq$Population
+Microbiota = RNA_seq$Microbiota
+
+# make meta NMDS dataframe for adonis 
+RNA_seq_NMDS <- data.frame(nMDS1 = nMDS1, nMDS2 = nMDS2, Population = Population, Microbiota = Microbiota)
+
+micro <- ggplot(RNA_seq_NMDS, aes(nMDS1, nMDS2, color = Microbiota)) + 
+  geom_point() +
+  stat_ellipse() + 
+  theme_bw() + 
+  xlab('nMDS Dimension 1') +
+  ylab('nMDS Dimension 2') +
+  ggtitle('Ordination by Microbiota') +
+  theme(legend.position = 'top')
+
+pop <- ggplot(RNA_seq_NMDS, aes(nMDS1, nMDS2, color = Population)) + 
+  geom_point() +
+  stat_ellipse() + 
+  theme_bw() + 
+  xlab('nMDS Dimension 1') +
+  ylab('') +
+  ggtitle('Ordination by Population') +
+  theme(legend.position = 'top')
+
+  
+ggarrange(micro, pop, ncol = 2, labels = c('A','B'))
+```
+**Figure 4.** Ordination of non-metric multidimensional scaling by microbiota treatment (A) and by population (B).    
+
+## Discussion
+
+Intestinal microbiota are widely studied due to their role in the metabolism of exogenous fatty acids, and because the diversity of these microbiota can be affected by diet, having notable influence on gasterointestinal diseases in humans.<sup>2</sup> Studying the host-microbe relationship in the zebrafish model has been useful because of their response to microbiota similar to mammals, and the ability to study gnotobiotic zebrafish for a more targeted analysis of specific host-microbe interactions.<sup>3,4</sup> Similarly, the threespine stickleback has been used as a model because of a greater ability to control key environmental variables as compared to zebrafish models, and has potential to be used as a model for microbiota-associated disase.<sup>5</sup>
+
+The relationship of zebrafish survival to microbiota treatment, and absence of a significant relationship between survival and population in this work suggests the importance of microbial differences on early development may be independent of population. However the importance of microbiota is further highlighted in the significant effect of both microbiota treatment, population, and their interaction on the triacylglyceride concentration in whole stickleback (Figure 2). These results suggest that population effects could alter the host-microbe interaction on a lower, potentially genetic level. The ordination of transcriptomic dissimilarity by nMDS suggests a stronger effect of population (perMANOVA: R<sup>2</sup> = 0.15) than microbiota (perMANOVA: R<sup>2</sup> = 0.08), lending support to the idea that transcriptomic differences between populations could be responsible for a difference in host-microbe interaction.
+
+
+The extent to which these population level effects on the host-microbe interaction in stickleback is associated genetic differece driven by different population microbiota  has yet to be established. Information in this area would add valuable information to previous studies on host-microbe interaction in stickleback, as well as provide information on persistent genetic changes that could result from environmental microbial diversity, and be responsible for population level differentialtion of the host-microbe interaction. These ideas could also lend to microbiome research in humans, and the relationship of micrbiome diversity to disease. 
+
+## Literature Cited
+
+1. Jari Oksanen, F. Guillaume Blanchet, Michael Friendly, Roeland
+  Kindt, Pierre Legendre, Dan McGlinn, Peter R. Minchin, R. B.
+  O'Hara, Gavin L. Simpson, Peter Solymos, M. Henry H. Stevens,
+  Eduard Szoecs and Helene Wagner (2017). vegan: Community
+  Ecology Package. R package version 2.4-4.
+  https://CRAN.R-project.org/package=vegan
+
+2. I. Semova, J.D. Carten, J. Stombaugh, L.C. Mackey, R. Knight, *et al.* (2012). Microbiota Regulate Intestinal Absorption and Metabolism of Fatty Acids in the Zebrafish. *Cell Host and Microbe* **12**:277-288.
+
+3. J.F. Rawls, B.S. Samuel, and J.I. Gordon, (2004). Gnotobiotic zebrafish reveal evolutionarily conserved responses to the gut microbiota. *PNAS* **11**(13): 4596-4601.
+
+4. M Kanther and J.F. Rawls, (2010). Host-microbe interactions in the developing zebrafish. *Current Opinion in Immunology* **22**:10-19
+
+5. C.M. Small, K. Milligan-Myhre, S. Bassham, K. Guillemin, and W.A. Cresko, (2017). Host Genotype and Microbiota Contribute Asymetrically to Transcriptional Variation in Threespine Stickleback Gut. *Genome Biol. Evol.*, 1-17. doi:10.1093/gbe/evx014

@@ -88,10 +88,10 @@ denis_gc <- denis %>% select(., c('region','coverage','rollmean10','rollmean100'
 neand_gc <- neand %>% select(., c('region','coverage','rollmean10','rollmean100','rollmean1000')) %>% drop_na()
 
 # samples 500 points from each region
-denis_small <- denis_gc %>% group_by(region) %>% sample_n(., size = 500)
+denis_small <- denis_gc %>% group_by(region) %>% sample_n(., size = 200)
 
 # sample 500 points from each region
-neand_small <- neand_gc %>% group_by(region) %>% sample_n(., size = 500)
+neand_small <- neand_gc %>% group_by(region) %>% sample_n(., size = 200)
 
 # plot coverage vs. the cg content for different k-values (denisovan)
 with(denis_small,{
