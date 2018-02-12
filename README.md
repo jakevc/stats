@@ -4,6 +4,7 @@ Jake VanCampen
 
 ### My work for adv biological statistics 2.
 
+* [SR2](https://jakevc.github.io/stats/hws/SR1.html), How does coverage vary with GC content on a per ±K base window.
 * [LR1](https://jakevc.github.io/stats/hws/LR1.html), Analysis of ancient hominid DNA
 * [SR1](https://jakevc.github.io/stats/hws/SR1.html),
 
