@@ -4,6 +4,8 @@ title: "Short Report 2"
 author: "Jake VanCampen"
 date: "`r format(Sys.Date(), '%d-%b-%Y')`"
 output: html_document
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -20,6 +22,7 @@ library(rstan)
 library(ggpubr)
 library(Rfast)
 library(zoo)
+library(matrixStats)
 
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
@@ -76,7 +79,7 @@ head(neand, 10)
 ```
 
 
-The rolling mean generates k/2 number of NA's for the first k/2 sites and last k/2 sites that cannot be centered for averageing. I will select only rows without NA's then plot the coverage vs, the GC content for each k values.
+The rolling mean generates k/2 number of NA's for the first k/2 sites and last k/2 sites that cannot be centered for averageing. I will select only rows without NA's then plot the coverage vs, the GC content for each k values, this should still provide a representative sample of the data.
 
 
 ```{r}
@@ -88,13 +91,21 @@ denis_gc <- denis %>% select(., c('region','coverage','rollmean10','rollmean100'
 neand_gc <- neand %>% select(., c('region','coverage','rollmean10','rollmean100','rollmean1000')) %>% drop_na()
 
 # samples 500 points from each region
-denis_small <- denis_gc %>% group_by(region) %>% sample_n(., size = 200)
+denis_small <- denis_gc  %>% sample_n(., size = 400)
 
 # sample 500 points from each region
-neand_small <- neand_gc %>% group_by(region) %>% sample_n(., size = 200)
+neand_small <- neand_gc  %>% sample_n(., size = 400)
+
+# add columns to represent individual
+denis_small$ind <- factor(rep(1, nrow(denis_small)))
+neand_small$ind <- factor(rep(2, nrow(neand_small)))
+
+# combine datasets
+all_data <- rbind(denis_small,neand_small)
 
 # plot coverage vs. the cg content for different k-values (denisovan)
-with(denis_small,{
+layout(t(1:2))
+with(all_data[all_data$ind==1,],{
   plot(rollmean10, coverage, col='black', 
        pch=2, xlab='GC content (fraction of k-size window)', main='Denisovan')
   points(rollmean100, coverage, col='blue', pch=3)
@@ -102,19 +113,20 @@ with(denis_small,{
   legend('topleft',legend = c('k=10','k=100','k=1000'),pch=c(2,3,4), col = c('black', 'blue', 'orange'))
 })
 
-# plot coverage (neanderthal)
-with(neand_small,{
+with(all_data[all_data$ind==2,],{
   plot(rollmean10, coverage, col='black', 
-       pch=2, xlab='GC content (fraction of k-size window)', main='Neanderthal')
+       pch=2, xlab='GC content (fraction of k-size window)',
+       main='Neanderthal',ylab='')
   points(rollmean100, coverage, col='blue', pch=3)
   points(rollmean1000, coverage, col='orange', pch=4)
-  legend('topleft',legend = c('k=10','k=100','k=1000'),pch=c(2,3,4), col = c('black', 'blue', 'orange'))
 })
 
 ```
 
-The coverage seems to vary more with GC content for the Neanderthal than for the Denisovan individual. Let's model these count data using stan.
+The coverage seems to vary more over larger window sizes, and there is a larger variation in the neanderthal. I would guess that the window size with the greatest influence on coverage is k=100 because that is the bp size of each region, and regional gc content is known to effect regional coverage during sequencing.
 
+
+The relationship between coverage and gc content over different window sizes can be modeled in stan, as follows: 
 
 ```{r}
 gc_mod <- "data {
@@ -122,40 +134,177 @@ gc_mod <- "data {
     vector[N] k10; // gc content within ±K bases
     vector[N] k100; 
     vector[N] k1000;
+    int ind[N]; // individual 
     int z[N]; // coverage per site 
+    int nind; // per individaul
 }
 parameters {
-    real<lower=0> alpha[N]; // mean coverage
-    real b;
-    real m1;
-    real m2;
-    real m3;
+    real<lower=0> alpha[N]; // poisson mean
+    vector[nind] b;
+    vector[nind] m1;
+    vector[nind] m2;
+    vector[nind] m3;
     real<lower=0> sigma;
 }
 model {
     vector[N] y;
-    y = b + m1 * k10 + m2 * k100 + m3 * k1000;
-    z ~ poisson_log(alpha); 
+    y = b[ind] + m1[ind] .* k10 + m2[ind] .* k100 + m3[ind] .* k1000;
+    z ~ poisson(alpha); 
     alpha ~ lognormal(y, sigma); // model noise into the mean
-    b ~ normal(0, 10);
-    m1 ~ normal(0, 10);
-    m2 ~ normal(0, 10);
-    m3 ~ normal(0, 10);
-    sigma ~ normal(0, 10);
+    b ~ normal(0, 20); 
+    m1 ~ normal(0, 20);
+    m2 ~ normal(0, 20);
+    m3 ~ normal(0, 20);
+    sigma ~ normal(0, 20);
 }"
+gc_data <- list(N=nrow(all_data),
+                k10=all_data$rollmean10,
+                k100=all_data$rollmean100,
+                k1000=all_data$rollmean1000,
+                z=all_data$coverage,
+                nind=length(levels(all_data$ind)),
+                ind=as.numeric(all_data$ind))
 
-gc_data <- list(N=nrow(neand_small),
-                k10=neand_small$rollmean10,
-                k100=neand_small$rollmean100,
-                k1000=neand_small$rollmean1000,
-                z=neand_small$coverage)
+# obtain posterior distibutions on the parameters
 gc_fit <- stan(model_code = gc_mod, chains = 3, iter = 1000, data = gc_data)
+
+# how well do the chains converging
+stan_rhat(gc_fit, bins=50) 
+
+# check for full mixing
+stan_trace(gc_fit, pars=c('m1','m2','m3'))
+
+# how do these distributions on our predictors look?
+stan_hist(gc_fit, pars=c('m1','m2','m3'))
+stan_hist(gc_fit, pars = c('b','sigma'))
+
+# extract the posterior distributions from the fit
+post_gc <- extract(gc_fit, pars=c('m1','m2','m3','b','sigma'))
+```
+
+The estimate of Rhat is highly distribute close to one, this increases out confidence in the parameter estimates. The stan trace shows all chains are mixing well. The posterior distributions of the parameter esimates are tight, that will be be useful for simulating similar data. Let's look at the posterior distributions of the parameters for each individual. 
+
+```{r}
+
+# determine distributions across linear predictors for each individual
+denis_post  <- NULL
+for (name in names(post_gc)[1:4]){
+    denis_post[[name]] <-  post_gc[[name]][,1]
+}
+
+neand_post <- NULL
+for (name in names(post_gc)[1:4]){
+    neand_post[[name]] <-  post_gc[[name]][,1]
+}
+
+
+# plot
+layout(t(2:1))
+boxplot(denis_post, main='denisovan', ylab='gc content', xlab='parameter')
+boxplot(neand_post, main='neanderthal', ylab='gc content', xlab='parameter')
+
+```
+
+Okay it looks like for each individual the window size that has the highest influence on the prediction of coverage is k=100. This happens to be the window size of the 'regions' across the chromosomes of these individuals. This result is consistent with the phenomenon of GC bias, where regions with very low and high GC content tend to have lower coverage, and those with GC content between 50 and 60 percent get the best seqeuncing coverage. This phenomenon is known as 'GC bias', and can be partially attributed to PCR bias during PCR amplification steps of sequencing library preparation.
+
+## Simulate the data
+
+```{r}
+# simulate data form the posterior distribution 
+nsamples <- nrow(all_data)
+
+# grab estimates of the posterior mean from the parameters
+params1 <- list(b=colMeans2(post_gc$b),
+                m1=colMeans2(post_gc$m1),
+                m2=colMeans2(post_gc$m2),
+                m3=colMeans2(post_gc$m3),
+                sigma=mean(post_gc$sigma))
+
+# simulate data from 'guess' values
+sim_data <- data.frame(k10 = rnorm(nsamples, 0.4, 0.03),
+                       k100 = rnorm(nsamples, 0.4, 0.05),
+                       k1000 = rnorm(nsamples,0.5, 0.1),
+                       ind=sample(c(1,2), nsamples, replace=TRUE))
+
+# simulate 100 datasets:
+kk <- sample.int(nrow(post_gc$b), 100)
+sims <- lapply(kk, function (k) {
+                b <- post_gc$b[k,]
+                m1 <- post_gc$m1[k,]
+                m2 <- post_gc$m2[k]
+                m3 <- post_gc$m3[k,]
+                sigma <- post_gc$sigma[k]
+                y <- with(list2env(sim_data), params1$b[ind] + 
+                        params1$m1[ind] * k10 + 
+                        params1$m2[ind] * k100 + 
+                        params1$m3[ind] * k1000)
+                mu <- exp(rnorm(length(y), 
+                                mean=y, sd=sigma))
+                rpois(length(mu), mu)
+         })
+sim1 <- do.call(cbind, sims)
+
+```
+
+## Plot the true data relative to the simulated data
+
+```{r}
+library(matrixStats)
+
+# plot the coverage agains the range of simulated values
+plot(sort(all_data$coverage), ylab='counts', ylim=range(sim1),type='n')
+segments(x0=seq_len(nrow(all_data)),
+         y0=sort(rowMins(sim1)),
+         y1=sort(rowMaxs(sim1)))
+points(sort(all_data$coverage), pch=1, col='red')
+```
+Coverage values fall within the simulated data, this is a good sign! Though the simulated data looks a little over-predicted compared to the real coverage values. This can be measured by looking at the goodness of fit score we developed in class. 
+
+
+## Asess goodness of fit score
+
+Using the gof function built in class the goodness of fit for sim2 can be calculated, and plotted aginst
+```{r}
+gof <- function (z, x) {
+    # z is a vector of observed counts
+    # x is a (length(z) x N) matrix of simulated data
+    sqrt(mean( ((z - rowMeans2(x)) / rowSds(x))^2 ))
+}
+# TEST THIS
+z0 <- rnorm(5); x0 <- matrix(rnorm(50), nrow=5)
+ans0 <- gof(z0, x0)
+ans1 <- 0
+for (i in 1:5) {
+    ans1 <- ans1 + (z0[i] - mean(x0[i,]))^2 / var(x0[i,])
+}
+ans1 <- sqrt(ans1/length(z0))
+stopifnot(abs(ans0 - ans1) < 5*.Machine$double.eps)
+
+
+# obtain a goodness of fit score for the simulated data
+gof_full <- gof(all_data$coverage, sim1)
+
 ```
 
 
+#### How do the gof scores for the simulated data compare to that of the model gof score?
 
+```{r}
+more_sim <- do.call(cbind, sims)
 
+gof_scores <- sapply(1:ncol(more_sim), function (k) {
+                         z <- more_sim[,k]
+                         x <- sim1
+                         gof(z, x)
+         } )
+hist(gof_scores, 
+     xlim = c(min(gof_scores), gof_full), 
+     main = 'Histogram of 100 simulations',
+     xlab = 'Goodness of fit score',
+     breaks=20, 
+     col='blue')
+abline(v=gof_full, col='red', lwd=2)
+legend("topright", lty=2, col='red', legend="Sim1")
+```
 
-
-
-
+The GOF of the model falls outside that of the simulated datasets. This tells us that the simulated data doesn't predict real data with great accuracy. This could tell us that there may be some other latent variable that is a better predictor of GC content than window size. Different parameterizations of the model could allow for a posterior distribution of parameter values that better predict the data.
