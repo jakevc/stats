@@ -120,7 +120,7 @@ $(document).ready(function () {
 
 <h1 class="title toc-ignore">HW1</h1>
 <h4 class="author"><em>Jake VanCampen</em></h4>
-<h4 class="date"><em>Feb-02-2018</em></h4>
+<h4 class="date"><em>Feb-26-2018</em></h4>
 
 </div>
 
@@ -131,7 +131,8 @@ $(document).ready(function () {
 <pre class="r"><code># load tidyverse packages 
 library(tidyverse)</code></pre>
 <pre><code>## Warning: package 'tidyverse' was built under R version 3.4.2</code></pre>
-<pre><code>## Warning: package 'tidyr' was built under R version 3.4.2</code></pre>
+<pre><code>## Warning: package 'tibble' was built under R version 3.4.3</code></pre>
+<pre><code>## Warning: package 'tidyr' was built under R version 3.4.3</code></pre>
 <pre><code>## Warning: package 'purrr' was built under R version 3.4.2</code></pre>
 <pre><code>## Warning: package 'dplyr' was built under R version 3.4.2</code></pre>
 <pre class="r"><code>RNAseq_raw &lt;- read_csv('./Data/HW_RNAseq.csv',col_names = TRUE) </code></pre>
@@ -140,16 +141,16 @@ library(tidyverse)</code></pre>
 <pre><code>## [1] &quot;tbl_df&quot;     &quot;tbl&quot;        &quot;data.frame&quot;</code></pre>
 <pre class="r"><code>head(RNAseq_raw)</code></pre>
 <pre><code>## # A tibble: 6 x 14
-##   SampleID Population    Treatment    Sex   Gene01   Gene02   Gene03
-##      &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;  &lt;chr&gt;    &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;
-## 1    BtCV1       Boot Conventional   male 356.7014 203.0008 412.7683
-## 2    BtCV2       Boot Conventional   male 348.7677 297.5724 385.0310
-## 3    BtCV3       Boot Conventional female 361.2610 296.8256 388.7253
-## 4    BtCV4       Boot Conventional female 448.2658 213.5716 332.0922
-## 5    BtCV5       Boot Conventional   male 470.6721 227.1835 336.9708
-## 6    BTMA1       Boot    MonoAssoc   male 257.8895 367.5888 422.4385
-## # ... with 7 more variables: Gene04 &lt;dbl&gt;, Gene05 &lt;dbl&gt;, Gene06 &lt;dbl&gt;,
-## #   Gene07 &lt;dbl&gt;, Gene08 &lt;dbl&gt;, Gene09 &lt;dbl&gt;, Gene10 &lt;dbl&gt;</code></pre>
+##   SampleID Population Treatment   Sex   Gene01 Gene02 Gene03 Gene04 Gene05
+##   &lt;chr&gt;    &lt;chr&gt;      &lt;chr&gt;       &lt;chr&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+## 1 BtCV1    Boot       Convention… male     357    203    413  113    139  
+## 2 BtCV2    Boot       Convention… male     349    298    385  109    126  
+## 3 BtCV3    Boot       Convention… fema…    361    297    389   94.0  142  
+## 4 BtCV4    Boot       Convention… fema…    448    214    332  131    228  
+## 5 BtCV5    Boot       Convention… male     471    227    337   96.7  214  
+## 6 BTMA1    Boot       MonoAssoc   male     258    368    422  117     70.2
+## # ... with 5 more variables: Gene06 &lt;dbl&gt;, Gene07 &lt;dbl&gt;, Gene08 &lt;dbl&gt;,
+## #   Gene09 &lt;dbl&gt;, Gene10 &lt;dbl&gt;</code></pre>
 <p>It looks like the data were read in as a tibble. That’s good news, it will make the dataset easier to work with. The categorical variables seem to be listed first, followed by the response variables. It could be useful to generate a list of each.</p>
 <pre class="r"><code>vars_categorical &lt;- colnames(RNAseq_raw)[1:4]
 vars_categorical</code></pre>
@@ -168,14 +169,14 @@ data_tidy &lt;- gather(RNAseq_raw, gene, count, -SampleID, -Population, -Treatme
 
 head(data_tidy)</code></pre>
 <pre><code>## # A tibble: 6 x 6
-##   SampleID Population    Treatment    Sex   gene    count
-##      &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;  &lt;chr&gt;  &lt;chr&gt;    &lt;dbl&gt;
-## 1    BtCV1       Boot Conventional   male Gene01 356.7014
-## 2    BtCV2       Boot Conventional   male Gene01 348.7677
-## 3    BtCV3       Boot Conventional female Gene01 361.2610
-## 4    BtCV4       Boot Conventional female Gene01 448.2658
-## 5    BtCV5       Boot Conventional   male Gene01 470.6721
-## 6    BTMA1       Boot    MonoAssoc   male Gene01 257.8895</code></pre>
+##   SampleID Population Treatment    Sex    gene   count
+##   &lt;chr&gt;    &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;  &lt;chr&gt;  &lt;dbl&gt;
+## 1 BtCV1    Boot       Conventional male   Gene01   357
+## 2 BtCV2    Boot       Conventional male   Gene01   349
+## 3 BtCV3    Boot       Conventional female Gene01   361
+## 4 BtCV4    Boot       Conventional female Gene01   448
+## 5 BtCV5    Boot       Conventional male   Gene01   471
+## 6 BTMA1    Boot       MonoAssoc    male   Gene01   258</code></pre>
 <p>Okay that looks better, now ‘gene’ is a categorical variable, and the associated ‘counts’ were still retained. This will make it easier to visualize the data.</p>
 </div>
 <div id="histograms" class="section level3">
@@ -201,14 +202,14 @@ ztrans &lt;- data_tidy %&gt;%
 head(ztrans)</code></pre>
 <pre><code>## # A tibble: 6 x 7
 ## # Groups:   gene [1]
-##   SampleID Population    Treatment    Sex   gene    count    z_trans
-##      &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;  &lt;chr&gt;  &lt;chr&gt;    &lt;dbl&gt;      &lt;dbl&gt;
-## 1    BtCV1       Boot Conventional   male Gene01 356.7014  0.4349682
-## 2    BtCV2       Boot Conventional   male Gene01 348.7677  0.3232728
-## 3    BtCV3       Boot Conventional female Gene01 361.2610  0.4991615
-## 4    BtCV4       Boot Conventional female Gene01 448.2658  1.7240712
-## 5    BtCV5       Boot Conventional   male Gene01 470.6721  2.0395225
-## 6    BTMA1       Boot    MonoAssoc   male Gene01 257.8895 -0.9561690</code></pre>
+##   SampleID Population Treatment    Sex    gene   count z_trans
+##   &lt;chr&gt;    &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;  &lt;chr&gt;  &lt;dbl&gt;   &lt;dbl&gt;
+## 1 BtCV1    Boot       Conventional male   Gene01   357   0.435
+## 2 BtCV2    Boot       Conventional male   Gene01   349   0.323
+## 3 BtCV3    Boot       Conventional female Gene01   361   0.499
+## 4 BtCV4    Boot       Conventional female Gene01   448   1.72 
+## 5 BtCV5    Boot       Conventional male   Gene01   471   2.04 
+## 6 BTMA1    Boot       MonoAssoc    male   Gene01   258  -0.956</code></pre>
 <pre class="r"><code># plot all genes
 ztrans %&gt;% 
   ggplot(., aes(z_trans, fill = gene))+
@@ -666,9 +667,9 @@ pander(summary_by_fctr)</code></pre>
 <div id="standard-error-and-confidence-interval" class="section level2">
 <h2>Standard Error and Confidence interval</h2>
 <p>Here, the standard error and 95% confidence interval are calculated using the parametic, as well as bootstrap resampling approach. The results are compared in a table.</p>
-<pre class="r"><code>library(knitr)
-
-# parametric approach to standard error
+<pre class="r"><code>library(knitr)</code></pre>
+<pre><code>## Warning: package 'knitr' was built under R version 3.4.3</code></pre>
+<pre class="r"><code># parametric approach to standard error
 SE_para &lt;- function(x) {
   l_CI &lt;- mean(x) - (sd(x)/sqrt(length(x)) * qt(0.975, (length(x)-1)))
   u_CI &lt;- mean(x) + (sd(x)/sqrt(length(x)) * qt(0.975, (length(x)-1)))
@@ -742,12 +743,12 @@ data_tidy %&gt;%
 <td align="center">15.88</td>
 <td align="center">292.56</td>
 <td align="center">359.05</td>
-<td align="center">15.41</td>
-<td align="center">296.02</td>
-<td align="center">356.35</td>
-<td align="center">1303.56</td>
-<td align="center">2293.20</td>
-<td align="center">7462.02</td>
+<td align="center">15.20</td>
+<td align="center">295.26</td>
+<td align="center">355.83</td>
+<td align="center">1304.95</td>
+<td align="center">2423.78</td>
+<td align="center">7490.90</td>
 </tr>
 <tr class="even">
 <td align="center">Gene02</td>
@@ -755,12 +756,12 @@ data_tidy %&gt;%
 <td align="center">17.11</td>
 <td align="center">174.68</td>
 <td align="center">246.32</td>
-<td align="center">17.18</td>
-<td align="center">177.60</td>
-<td align="center">243.26</td>
-<td align="center">1420.27</td>
-<td align="center">3050.72</td>
-<td align="center">8416.96</td>
+<td align="center">16.42</td>
+<td align="center">179.22</td>
+<td align="center">242.46</td>
+<td align="center">1430.21</td>
+<td align="center">2830.43</td>
+<td align="center">8376.10</td>
 </tr>
 <tr class="odd">
 <td align="center">Gene03</td>
@@ -768,12 +769,12 @@ data_tidy %&gt;%
 <td align="center">16.99</td>
 <td align="center">269.77</td>
 <td align="center">340.89</td>
-<td align="center">16.52</td>
-<td align="center">270.77</td>
-<td align="center">337.34</td>
-<td align="center">1069.33</td>
-<td align="center">3492.04</td>
-<td align="center">7800.72</td>
+<td align="center">16.46</td>
+<td align="center">272.66</td>
+<td align="center">336.76</td>
+<td align="center">1049.58</td>
+<td align="center">3491.68</td>
+<td align="center">7670.24</td>
 </tr>
 <tr class="even">
 <td align="center">Gene04</td>
@@ -781,12 +782,12 @@ data_tidy %&gt;%
 <td align="center">5.14</td>
 <td align="center">86.99</td>
 <td align="center">108.50</td>
-<td align="center">4.92</td>
-<td align="center">88.21</td>
-<td align="center">107.42</td>
-<td align="center">125.01</td>
-<td align="center">258.37</td>
-<td align="center">752.24</td>
+<td align="center">5.02</td>
+<td align="center">87.64</td>
+<td align="center">107.22</td>
+<td align="center">125.45</td>
+<td align="center">272.01</td>
+<td align="center">757.27</td>
 </tr>
 <tr class="odd">
 <td align="center">Gene05</td>
@@ -794,12 +795,12 @@ data_tidy %&gt;%
 <td align="center">10.41</td>
 <td align="center">114.30</td>
 <td align="center">157.89</td>
-<td align="center">10.25</td>
-<td align="center">117.15</td>
-<td align="center">156.58</td>
-<td align="center">670.23</td>
-<td align="center">808.99</td>
-<td align="center">3428.99</td>
+<td align="center">10.07</td>
+<td align="center">117.88</td>
+<td align="center">155.96</td>
+<td align="center">622.20</td>
+<td align="center">850.23</td>
+<td align="center">3310.80</td>
 </tr>
 <tr class="even">
 <td align="center">Gene06</td>
@@ -808,11 +809,11 @@ data_tidy %&gt;%
 <td align="center">4.09</td>
 <td align="center">7.60</td>
 <td align="center">0.83</td>
-<td align="center">4.32</td>
-<td align="center">7.60</td>
-<td align="center">5.39</td>
-<td align="center">3.56</td>
-<td align="center">24.03</td>
+<td align="center">4.48</td>
+<td align="center">7.52</td>
+<td align="center">5.44</td>
+<td align="center">3.86</td>
+<td align="center">24.89</td>
 </tr>
 <tr class="odd">
 <td align="center">Gene07</td>
@@ -820,12 +821,12 @@ data_tidy %&gt;%
 <td align="center">0.97</td>
 <td align="center">21.92</td>
 <td align="center">25.96</td>
-<td align="center">0.92</td>
-<td align="center">22.19</td>
-<td align="center">25.76</td>
-<td align="center">3.77</td>
-<td align="center">10.34</td>
-<td align="center">25.57</td>
+<td align="center">0.96</td>
+<td align="center">22.00</td>
+<td align="center">25.73</td>
+<td align="center">3.63</td>
+<td align="center">10.55</td>
+<td align="center">24.94</td>
 </tr>
 <tr class="even">
 <td align="center">Gene08</td>
@@ -833,12 +834,12 @@ data_tidy %&gt;%
 <td align="center">63.69</td>
 <td align="center">1014.35</td>
 <td align="center">1280.95</td>
-<td align="center">59.26</td>
-<td align="center">1033.28</td>
-<td align="center">1270.82</td>
-<td align="center">14873.76</td>
-<td align="center">49832.24</td>
-<td align="center">105680.72</td>
+<td align="center">62.14</td>
+<td align="center">1028.75</td>
+<td align="center">1270.34</td>
+<td align="center">15190.29</td>
+<td align="center">48958.12</td>
+<td align="center">106693.94</td>
 </tr>
 <tr class="odd">
 <td align="center">Gene09</td>
@@ -846,12 +847,12 @@ data_tidy %&gt;%
 <td align="center">11.42</td>
 <td align="center">137.31</td>
 <td align="center">185.13</td>
-<td align="center">10.92</td>
-<td align="center">139.55</td>
-<td align="center">182.34</td>
-<td align="center">850.50</td>
-<td align="center">1074.74</td>
-<td align="center">4454.69</td>
+<td align="center">11.44</td>
+<td align="center">140.46</td>
+<td align="center">184.52</td>
+<td align="center">815.75</td>
+<td align="center">944.75</td>
+<td align="center">4122.36</td>
 </tr>
 <tr class="even">
 <td align="center">Gene10</td>
@@ -859,12 +860,12 @@ data_tidy %&gt;%
 <td align="center">4.70</td>
 <td align="center">39.81</td>
 <td align="center">59.49</td>
-<td align="center">4.55</td>
-<td align="center">40.35</td>
-<td align="center">58.95</td>
-<td align="center">121.41</td>
-<td align="center">211.68</td>
-<td align="center">673.34</td>
+<td align="center">4.61</td>
+<td align="center">41.50</td>
+<td align="center">58.92</td>
+<td align="center">122.27</td>
+<td align="center">205.03</td>
+<td align="center">680.10</td>
 </tr>
 </tbody>
 </table>
@@ -890,7 +891,7 @@ total_trees &lt;- rep(trees$num_trees, trees$num_plots)
 mean_trees &lt;- mean(total_trees)
 var(total_trees)</code></pre>
 <pre><code>## [1] 4.410771</code></pre>
-<p>It appears we need more support to test that these data are Poisson distributed, because the calculated mean and variance (of this small dataset) are unequal. Here, a maximum likelihood appraoch is used to estimate the parameter lambda using the poisson equaiton: <span class="math display">\[P\left( y = r \right) = \frac{{e^{ - \lambda } \lambda ^r }}{{r!}}\]</span></p>
+<p>It appears we need more support to test that these data are Poisson distributed, because the calculated mean and variance (of this small dataset) are unequal. Here, a maximum likelihood appraoch is used to estimate the parameter lambda using the poisson equaiton:</p>
 <p>The 95% confidence interval of estimating this parameter is also calculated, and may tell how acceptable it is that the mean and variance are different.</p>
 <pre class="r"><code>lambda &lt;- seq(0,9,by = 0.001)
 ln_y &lt;- log((exp(1)^-lambda * lambda^mean_trees) / factorial(mean_trees))

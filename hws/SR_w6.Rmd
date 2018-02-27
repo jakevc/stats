@@ -1,0 +1,379 @@
+---
+title: "SR_w6"
+author: "Jake VanCampen"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+fig.dim <- 3
+knitr::opts_chunk$set(fig.width=2*fig.dim,
+                      fig.height=fig.dim,
+                      fig.align='center',
+                      message=FALSE)
+
+set.seed(23)
+library(tidyverse)
+library(magrittr)
+library(rstan)
+library(ggpubr)
+library(matrixStats)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+The data described in this report come from an RNA-seq experiment from the brood pouch of 12 male pipefish, half of whom were pregnant. First the data will be explored, and described. Then I will investigate the gene expression differences between pregnant and non-pregnant fish, and compare that to the variation in gene expression between individual fish. 
+
+Then, a 10-gene 'pregnancy test' will be designed using robust logistic regression for those 10 genes.
+
+
+```{r import_data}
+pipefish_data <- read_tsv('./Data/pipefish_RNAseq_CPM.tsv')
+
+head(pipefish_data)
+nrow(pipefish_data)
+```
+
+The data are described by normalized counts for each of the 1000 genes, for each of the 12 samples (columns). 
+
+We can get some idea of how the counts are distributed across all genes by viewing a histogram of their counts.
+
+```{r all_genes_hist}
+layout(matrix(1:6, 2, 3))
+with(pipefish_data, {
+  hist(P09)
+  hist(P08)
+  hist(P07)
+  hist(N04)
+  hist(N03)
+  hist(N02)
+})
+```
+
+
+The counts do not look normally distributed.. we can again check for normality by looking at the normal QQ plot for the same individuals. 
+```{r noramlity_check}
+layout(t(1:4))
+qqnorm(pipefish_data$P09)
+qqnorm(pipefish_data$P08)
+qqnorm(pipefish_data$N01)
+qqnorm(pipefish_data$N03)
+```
+
+I could also be interesting to look at the distribution of counts for each gene, though there are a lot, so maybe we'll just look at a distribution of the variance of counts in each gene. 
+
+```{r noramlity_check2}
+layout(t(1:4))
+by_gene_variance <- rowVars(as.matrix(pipefish_data[2:13]))
+hist(by_gene_variance)
+qqnorm(by_gene_variance)
+
+by_gene_mean <- rowMeans(pipefish_data[2:13])
+hist(by_gene_mean)
+qqnorm(by_gene_mean)
+```
+It is clear that both the mean and the variance of the counts per gene are not normally distributed, and have large outliers. This is also the case for the per, individual counts. The normal QQ plots tell us that the noise is not normal, and that to correctly model these data we will need to fit a model with a non-gaussian noise component to be robust to the outliers in our data. 
+
+
+These data take on pretty large values, and have large variance. We will need to standardize these data to better approximate their values in stan. The data can be scaled by subtracting the median and dividing by the mean absolute deviation as shown below.
+```{r scale_data}
+## scale with robust statistics
+scaled_pipefish <- lapply(pipefish_data[2:13], function(x){
+  x <- x - median(x) /  mad(x)
+})
+
+scaled_pipefish <- as.matrix(data.frame(scaled_pipefish))
+
+```
+
+We want to fit a model to determine the difference in mean gene expression between pregnant and non-pregnant fish. To do this we can fit a stan model with non-gaussian (Cauchy noise). With a data matrix of 1000 X 12, we are interested in describing how the mean gene expression between the groups is different. 
+
+We can describe the response gene expression 'y' as a cauchy, with center 'b + alpha * p' describing the mean gene expression for pregnant vs. non-pregnant fish, and scale 'epsilon', as follows: 
+
+$${y}= cauchy({b_0} + \alpha * p, \epsilon)$$
+
+
+## The stan model
+
+```{r model_data}
+pipefish_mod <- "
+data {
+    int N; // number of obs (1000) 
+    int m; // number of individuals
+    matrix[N, m] y; // data vector (by gene expression)
+    row_vector[m] p; // pregnancy status c(rep(1,6), rep(0,6))
+}
+parameters {
+    vector[N] b; // mean expresison for non-pregnent
+    vector[N] a; // mean expression for pregnant
+
+    vector<lower=0>[N] epsilon; // per gene error rate
+
+    real<lower=0> df_a;
+    real<lower=0> df_b;
+
+    real<lower=0> sigma_b;
+    real<lower=0> sigma_a;
+
+    real mu_a;
+    real mu_b;
+
+}
+model {
+
+    for(i in 1:N){
+       for(j in 1:m){
+         y[i][j] ~ cauchy(b[i] + a[i]* p[j], epsilon[i]);
+       }
+    }
+
+    b ~ student_t(df_b, mu_b, sigma_b);
+    a ~ student_t(df_a, mu_a, sigma_a);
+    
+    // priors on b
+    mu_b ~ normal(0, 10);
+    sigma_b ~ normal(0, 10);
+    df_b ~ normal(0, 20);
+  
+    // priors on a
+    mu_a ~ normal(0, 10);
+    sigma_a ~ normal(0, 10);
+    df_a ~ normal(0, 20);
+
+    // priors on epsilon
+    epsilon ~ normal(0, 10);
+}
+"
+
+data_list <- list(N=nrow(scaled_pipefish),
+                  y=scaled_pipefish,
+                  m=ncol(scaled_pipefish),
+                  p=c(rep(1,6), rep(0,6)))
+
+#pipe_fit <- stan(model_code = pipefish_mod, data=data_list, 
+#                iter=500, chains = 3,
+#                control=list(adapt_delta=0.99, max_treedepth=15))
+```
+
+
+The model was run and, and saved in a .RData file. The data can be read in as follows.
+
+```{r}
+# trick to save run for later
+pipe_fit <- readRDS("pipe_fit.rds")
+
+
+stan_trace(pipe_fit)
+# fuzzy!
+
+# investigate Rhat, n_eff
+head(summary(pipe_fit)$summary, 20)
+
+#Extract posterior
+post1 <- extract(pipe_fit)
+```
+
+We are interested how the mean gene expression of pregnant and non-pregnant males differ, relative to inter individual variation. To answer this question we can look at the expression difference between genes. We next want to compare how mu_a (the variation in mean expression per gene) compares to epsilon (the overall variation in gene expression that can be explained by individual). 
+
+```{r}
+#Calculate vector of mean expression difference for each gene
+expressionDiff <- 1 - (pt((1-post1$mu_a)/post1$sigma_a, df=post1$df_a) - pt((-1-post1$mu_a)/post1$sigma_a, df=post1$df_a))
+
+# histogram of the expression difference for each gene
+hist(expressionDiff)
+
+# mean difference in variation over epsilon
+epsilon_diff <- (pnorm(post1$epsilon) - pnorm(1-post1$epsilon)) / mean(expressionDiff)
+
+hist(epsilon_diff)
+
+# howdoes epsilon compare to mu_a
+mean(epsilon_diff) / mean(expressionDiff)
+```
+
+It looks like the variation in epsilon is about `mean(epsilon_diff) / mean(expressionDiff)` times greater than that which can be explained by mean gene expression. This doesn't lead to much confidence that gene expression is a good predictor of pregnancy... 
+
+## Pregnancy Test
+
+We next want to determine a 'pregnancy test' for the 12 individuals based on expression of the 10 'important' genes using robust logistic regression. 
+
+Once we have nice tight distributions of coefficients for the 10 genes, those 10 genes could theoretically be used to predict pregnancy for an individual.
+
+```{r}
+# grab the posterior a's
+post_a <- as.data.frame(summary(pipe_fit)[1])[1001:2000, 1] #extract the 1000 'a' coefficients
+
+#Combined gene IDs with a's for the 1000 genes
+genes_a <- as.data.frame(cbind(pipefish_data$Gene_ID, post_a))
+
+# properly format numbers
+genes_a$post_a <- as.numeric(as.character(genes_a$post_a))
+
+# order from largest to smallest
+genes_a <- genes_a[order(abs(genes_a[,2]), decreasing = TRUE),] 
+
+#Take five smallest and five largest a's by omitting all genes in between
+test_genes <- genes_a[-c(11:1000),]
+
+# these are the genes that show the largest change in expression
+# between pregnant and non-pregnant fish based on our model fit.
+test_genes
+
+# get the rows for the coresponding genes 
+test_gene_rows <-  as.integer(rownames(test_genes))
+
+# take the transpose of the ten test genes to fit the logit regression
+ten_genes <- t(pipefish_data[2:13][test_gene_rows, ])
+
+```
+
+The model was run on Talapas, and saved in a .RData file. The data can be read in as follows.
+
+
+```{r logit_regression}
+Logit_model <- "
+data {
+    int N; // Number of fish
+    int m; // Number of genes
+    matrix[N, m] x; // matrix of Expression values for 10 gene panel
+    int p[N]; // pregnancy status: c(rep(1,6), rep(0,6))
+}   
+parameters{
+  real b0;      // intercept (baseline expression)
+  vector[m] c;  // coefficient of expression per gene
+  
+  real<lower=0> df_b;
+  real<lower=0> df_a;
+
+  real<lower=0> sigma_b;
+  real<lower=0> sigma_a;
+    
+  real mu_b;
+  real mu_a;
+}
+model {
+  vector[N] y;
+  y = b0 + x * c;
+  p ~ bernoulli_logit(y);
+
+  // Priors:
+  b0 ~ student_t(df_b, mu_b, sigma_b);
+  c ~ student_t(df_a, mu_a, sigma_a);
+  
+  // priors on b0 (expression on non-preg)
+  mu_b ~ normal(0, 10);
+  sigma_b ~ normal(0, 10);
+  df_b ~ normal(0, 20);
+  
+  // priors on c (expression with preg)
+  mu_a ~ normal(0, 10);
+  sigma_a ~ normal(0, 10);
+  df_a ~ normal(0, 20);
+}
+"
+
+data_list = list(N=nrow(ten_genes),
+                 m=ncol(ten_genes),
+                 p = c(rep(1,6),rep(0,6)),
+                 x = ten_genes)
+
+# fit the model -- cache and comment for knitting
+#ten_fit2 <- stan(model_code=Logit_model, 
+#                 data=data_list,
+#                 chains=3, iter=1000,
+#                 control = list(adapt_delta = 0.99, 
+#                                max_treedepth = 15))
+
+# save that for later
+#saveRDS(ten_fit2, "ten_fit2.rds")
+fit1 <- readRDS("ten_fit2.rds")
+
+# how is the rhat? 
+stan_rhat(fit1)
+
+# how are the coefficients distributed
+stan_hist(fit1)
+
+summary(fit1)$summary
+
+stan_trace(fit1)
+```
+
+It looks like the coefficients are distributed around small values, and the rhats are between 1 and 1.08. Good news!
+
+To make the 'pregnancy test' we can extract the posterior mean of coefficients 'c', and the intercept b0, and calculate the inverse logit from the linear combination of the data and these coefficients. 
+
+```{r pregnancy_test}
+# grab the posterior means for the paramters
+params <- as.matrix(summary(fit1)$summary[1:11,1])
+
+# intercept
+intercept <- as.numeric(params[1])
+
+# grab the coefficients posterior mean estimates
+coeffs <- params[2:11]
+
+# probability of each pregnancy
+x <- intercept + ten_genes %*% coeffs
+
+# return the inverse logit of x
+1/(1+exp(-x))
+```
+
+It looks like the pregnancy test is not predicting that each individual is pregnant.. 
+The probabilities for the non-pregnant fish seem to be an order of magnitute higher given the ten genes. The coefficient that looks like it's driving the high values, and maybe worse prediction is `r coeffs[8]`. 
+
+Let's see what happens if we decrease the importance of this coefficient by two orders of magnitute...
+
+```{r}
+coeffs_w8 <- coeffs
+coeffs_w8[8] <- coeffs[8]*(1/10)
+
+
+x_w9 <- intercept + ten_genes %*% coeffs_w8
+
+
+# return the inverse logit of x
+preg_stat <-  1/(1+exp(-x_w9))
+
+preg_stat
+
+
+```
+
+
+Putting a weight of 1/10th on this coefficient actually started to differentiate between pregnant and non-pregnant. Let's increase the weight to 1/15 and see how that works..
+
+
+```{r}
+coeffs_w8 <- coeffs
+coeffs_w8[8] <- coeffs[8]*(1/15)
+
+
+x_w9 <- intercept + ten_genes %*% coeffs_w8
+
+
+# return the inverse logit of x
+preg_stat <-  1/(1+exp(-x_w9))
+
+preg_stat
+
+
+```
+
+Aha! A 1/15 weight on coefficient8 makes the prediction actually differentiate between pregnant and non-pregnant. To check out whats going on with this coefficient, let's look back at the posterior predictions, and chains. 
+
+```{r}
+stan_trace(fit1)
+
+
+```
+
+It's clear that a posterior mean estimate of coefficient 8 will be skewed because of the lack of convergence of the chains.. 
+
+Refining the logistic model could lead to cleaner mean posterior estimates of the coefficients and a better prediction test! 
+
