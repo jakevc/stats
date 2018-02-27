@@ -1,6 +1,0 @@
----
-title: "SR7"
-author: "Jake VanCampen"
-date: "`r Sys.Date()`"
-output: html_document
----
