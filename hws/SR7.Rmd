@@ -62,13 +62,13 @@ A plot of the coefficients of the regression for each method is shown below. Alo
 Next, the coefficients of the horseshoe fit with a 95% CI not overlapping zero were determined. Those coefficients represented the following predictors: sex, bp, bmi, and ltg. 
 
 
-Sex, bp, bmi, and ltg were then used to predict the response 'y', and the prediction was plotted vs. the observed value for both methods. The root-mean-square error for each prediction is shown above each plot. The horseshoe predictions shows a much lower RMSE prediction value than that of the OLS. 
+Sex, bp, bmi, and ltg were then used to predict the response 'y', and the prediction was plotted vs. the observed value for both methods. The root-mean-square error for each prediction is shown above each plot. The horseshoe prediction shows a slightly higher root-mean-squared error than the ols prediction. The ols prediction is predicting y using all terms in the fit, whereas the horseshoe prediction is only using the four terms mentioned above whose coefficients we are 95% confident are nonzero. 
 
 ![](compare_predict.png)
 
 ## Final thoughts
 
-These results display the usefullness of the horseshoe prior for modeling data that are easily subject to overfitting using methods that assume normally distributed data. It is shown that sparsificaiton of the model coefficients using this method increase the signal to noise of the estimate in the coefficients, and that using the horseshoe model to fit the data results in a more accurate prediction of the response variable, given the 'important' coefficients.
+These results display the usefullness of the horseshoe prior for modeling data that are easily subject to overfitting using methods that assume normally distributed data. It is shown that sparsificaiton of the model coefficients using this method increase the signal to noise of the estimate in the coefficients, and that using the horseshoe model to fit the data results in a prediction with similar RMSE of OLS, with only the four most 'important' terms. As an added result, these terms turn out to be very interpretable, sex, bp, bmi, and ltg. By comparison,  non-zero coefficients of the OLS fit include some interaction terms of these variables whose biological interpretation may be less clear, for example the interaction of ldl and ltg.
 
 
 
