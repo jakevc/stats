@@ -1,0 +1,479 @@
+---
+title: "MetaP2"
+author: "Jake VanCampen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+Repeat nMDS using randomly selected genes from stickleback.csv
+
+
+```{r setup, include=FALSE}
+fig.dim <- 3
+knitr::opts_chunk$set(fig.align='center',
+                      message=FALSE)
+
+
+knitr::opts_chunk$set(cache=TRUE)
+options(mc.cores = parallel::detectCores())
+
+setwd("/Users/JakeVanCampen/Documents/2018_Bi625/")
+library(rfUtilities)
+library(randomForest)
+library(caret)
+library(plyr)
+library(vegan)
+library(MASS)
+library(magrittr) 
+library(tidyverse)
+
+set.seed(4562)
+```
+
+
+
+```{r read_data}
+## Read in TMM-normalized values for complement and coagulation genes
+stickle <- read.delim("data/stickleback_CPM.tsv", sep = "\t", 
+                      row.names = 1, header = T)
+dim(stickle)
+
+
+## Read in the metadata
+stickle_meta <- read.delim("data/stickleback_metadata.tsv", sep = "\t", header = T)
+head(stickle_meta)
+```
+
+
+We can look at both a random sample, and a sample of sex_specific genes
+
+
+## Sex specific
+```{r sample_sex}
+## Get only those genes from the region of chromosome 19 that is sex-specific
+subsample1 <- stickle[stickle$Genome_Loc=="groupXIX" & 
+                        stickle$Gene_Start_Pos>=6000000 &
+                        stickle$Gene_Start_Pos<=12000000, ]
+
+dim(subsample1)
+```
+
+
+
+## Random Subsample
+```{r sample_rand}
+# sample 314 randomly selected genes
+stickle_rand <-  stickle %>% sample_n(314)
+
+# 314 genes, 86 individauls
+dim(stickle_rand)
+```
+
+
+
+## Sex Specific
+
+```{r ord_sex}
+#### Let's start by using nMDS to see whether male-female expression differences exist
+
+## A bit of reformatting
+nmds_expr <- subsample1[,3:86]
+nmds_expr_t <- t(nmds_expr)
+
+## Generate dissimilarity matrix
+vare.dis <- vegdist(nmds_expr_t)
+
+## Generate nmds "latent variables" and evaluate fit 
+vare.mds0 <- isoMDS(vare.dis, k=2)
+stressplot(vare.mds0, vare.dis)
+
+## plot nmds 2 vs nmds 1
+ordiplot(vare.mds0, type = "t")
+```
+
+
+
+## Random Subsample
+
+```{r ord_rand}
+#### Let's start by using nMDS to see whether male-female expression differences exist
+
+## A bit of reformatting
+nmds_expr <- stickle_rand[,3:86]
+nmds_expr_t <- t(nmds_expr)
+
+## Generate dissimilarity matrix
+vare.dis <- vegdist(nmds_expr_t)
+
+## Generate nmds "latent variables" and evaluate fit 
+vare.mds0 <- isoMDS(vare.dis, k=2)
+stressplot(vare.mds0, vare.dis)
+
+## plot nmds 2 vs nmds 1
+ordiplot(vare.mds0, type = "t")
+```
+
+
+The stressplots show that the sex-specific subsample does better than the random selected sub_sample, and the ordination plot using random sampled genes does not show clear separation between male and female.
+
+
+## Random Forrest - Sex Specific
+
+Now, let's run random forest using all 84 samples and all 314 genes
+But first, some more reformatting
+
+```{r rf_sex}
+
+#### Now, let's run random forest using all 84 samples and all 314 genes
+## But first, some more reformatting
+
+## subset only the data columns and log-transform
+RF_expr <- log2(subsample1[,3:86]+.01)
+
+# Mean-center and range data (mean 0, sd 1). Must transpose for row wise scaling
+RF_expr.n <- data.frame(scale(t(RF_expr)))
+
+## add the classifier variable (sex, in this case)
+RF_expr.n$sex <- stickle_meta[,2]
+#head(RF_expr.n)
+
+## Run RF to classify males and females
+## ntree = number of dec. trees (501 is pretty low, but will be fast)
+## mtry = number of variables randomly sampled at each tree node. Default sqrt(num predictors)
+
+RF_sex_classify <- randomForest(x=RF_expr.n[,1:314], 
+                                y=RF_expr.n[,315], 
+                                ntree=501, importance=TRUE, 
+                                proximities=TRUE)
+
+RF_sex_classify
+## Fit implies perfect classification, but can also evaluate with a permutation test
+## This will take several minutes, so I won't re-run during class.
+
+  #RF_sex_classify_sig <- rf.significance(x=RF_sex_classify,  xdata=RF_expr.n[,1:314], 
+  #                                       nperm=1000, ntree=501 )  
+  #
+  #saveRDS(RF_sex_classify_sig, 'RF_sex.rds')
+## Model also classifies significantly better than expected by chance.
+
+RF_sex_classify_sig <- readRDS('data/RF_sex.rds')
+RF_sex_classify_sig
+#### Cross-validation using the "leave-one-out" strategy
+
+## specify this cross-validation strategy:
+fit_control <- trainControl( method = "LOOCV" )
+
+### do the training, with the same parameters as above
+  #RF_sex_classify_loocv <- train(RF_expr.n[,1:314], 
+  #                               y=RF_expr.n[,315], 
+  #                               method="rf", ntree=501, tuneGrid=data.frame(mtry=17), 
+  #                               trControl=fit_control)
+  #
+  #
+  #saveRDS(RF_sex_classify_loocv, 'RF_sex_classify_loocv')
+RF_sex_classify_loocv <- readRDS('data/RF_sex_classify_loocv')
+RF_sex_classify_loocv
+
+## look at the performance
+RF_sex_classify_loocv$results
+# This is an extremely well-fiting RF model
+
+## look at predicted (when left out) compared to observed
+head(RF_sex_classify_loocv$pred)
+
+
+
+#### Indentifyng important predictor variables
+
+RF_sex_classify_imp <- as.data.frame(RF_sex_classify$importance)
+RF_sex_classify_imp$features <- rownames(RF_sex_classify_imp)
+RF_sex_classify_imp_sorted <- arrange(RF_sex_classify_imp  , desc(MeanDecreaseAccuracy))
+
+## plot of the distribution of improtance for accuracy
+barplot(RF_sex_classify_imp_sorted$MeanDecreaseAccuracy, 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        main="RF Classification Variable Importance Distribution")
+
+## now let's just look at the 10 most important predictor variables
+barplot(RF_sex_classify_imp_sorted[1:10,"MeanDecreaseAccuracy"], 
+        names.arg=RF_sex_classify_imp_sorted[1:10,"features"] , 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        las=2, ylim=c(0,0.02), main="Classification RF", cex.names = 0.5)
+
+
+```
+
+
+
+### Random Forrest - Random Genes
+
+```{r rf_rand}
+## subset only the data columns and log-transform
+RF_expr <- log2(stickle_rand[,3:86]+.01)
+
+# Mean-center and range data (mean 0, sd 1). Must transpose for row wise scaling
+RF_expr.n <- data.frame(scale(t(RF_expr)))
+
+## add the classifier variable (rand, in this case)
+RF_expr.n$rand <- stickle_meta[,2]
+#head(RF_expr.n)
+
+## Run RF to classify males and females
+## ntree = number of dec. trees (501 is pretty low, but will be fast)
+## mtry = number of variables randomly sampled at each tree node. Default sqrt(num predictors)
+  #RF_rand_classify <- randomForest(x=RF_expr.n[,1:314], 
+  #                                y=RF_expr.n[,315], 
+  #                                ntree=501, importance=TRUE, 
+  #                                proximities=TRUE)
+  #saveRDS(RF_rand_classify, 'RF_rand_classify.rds')
+  #
+
+RF_rand_classify <- readRDS('data/RF_rand_classify.rds')
+RF_rand_classify
+
+
+## Fit implies perfect classification, but can also evaluate with a permutation test
+## This will take several minutes, so I won't re-run during class.
+  #RF_rand_classify_sig <- rf.significance(x=RF_rand_classify,  xdata=RF_expr.n[,1:314], 
+  #                                       nperm=1000, ntree=501 )  
+  #saveRDS(RF_rand_classify_sig, 'RF_rand_classify_sig.rds')
+
+
+RF_rand_classify_sig <- readRDS('data/RF_rand_classify_sig.rds')
+RF_rand_classify_sig
+## Model also classifies significantly better than expected by chance.
+
+
+
+#### Cross-validation using the "leave-one-out" strategy
+
+## specify this cross-validation strategy:
+fit_control <- trainControl( method = "LOOCV" )
+
+## do the training, with the same parameters as above
+  #RF_rand_classify_loocv <- train(RF_expr.n[,1:314], 
+  #                               y=RF_expr.n[,315], 
+  #                               method="rf", ntree=501, tuneGrid=data.frame(mtry=17), 
+  #                               trControl=fit_control)
+  #saveRDS(RF_rand_classify_loocv, 'RF_rand_classify_loocv.rds')
+
+
+RF_rand_classify_loocv <- readRDS('data/RF_rand_classify_loocv.rds')
+RF_rand_classify_loocv
+
+## look at the performance
+RF_rand_classify_loocv$results
+# This is an extremely well-fiting RF model
+
+## look at predicted (when left out) compared to observed
+head(RF_rand_classify_loocv$pred)
+
+
+
+#### Indentifyng important predictor variables
+RF_rand_classify_imp <- as.data.frame(RF_rand_classify$importance)
+RF_rand_classify_imp$features <- rownames(RF_rand_classify_imp)
+RF_rand_classify_imp_sorted <- arrange(RF_rand_classify_imp  , desc(MeanDecreaseAccuracy))
+
+## plot of the distribution of improtance for accuracy
+barplot(RF_rand_classify_imp_sorted$MeanDecreaseAccuracy, 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        main="RF Classification Variable Importance Distribution")
+
+## now let's just look at the 10 most important predictor variables
+barplot(RF_rand_classify_imp_sorted[1:10,"MeanDecreaseAccuracy"], 
+        names.arg=RF_rand_classify_imp_sorted[1:10,"features"] , 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        las=2, ylim=c(0,0.05), main="Classification RF", cex.names = 0.5)
+
+```
+
+
+For the sex-specific genes there were 0 misclassifications after leave-one-out. For the randomly sampled genes there were a total of 4 misclassifications, still pretty good. The classification variable importance distribution for sex-specific random forrest classifier shows a greater number of genes that are important in the classifier compared to the distribution from the random genes classifier. The accuracy for the random_genes subset is still good, however, indicating that the fewer random genes were still good classifiers of sex. 
+
+
+Taking a look at the top five classifying genes:
+```{r}
+genes <- RF_rand_classify_imp_sorted[1:5,]$features
+
+stickleback_genes <- read.delim('data/mart_export.txt', sep='\t', header = TRUE)
+
+stickleback_genes[stickleback_genes$Gene.stable.ID %in% genes,]
+```
+
+Ahh look, they are all from chromosome 19, where the sex specific genes are!
+
+
+
+## RF classification of IDB diagnosis using HMP metagenomic data
+
+First we read in the provided ibd dataset, and look at the metadata. 
+```{r load_ibd}
+ibd <- read.delim('data/pathabundances_IBD.tsv', sep='\t', header=TRUE)
+dim(ibd)
+
+ibd_meta <- read.delim('data/metadata_IBD_all.tsv', sep='\t', header=TRUE)
+head(ibd_meta)
+```
+
+
+The dataset is a shotgun metagenomic dataset of IBD patients containing 33 Crohn's Disease and 23 Ulcerative Colitis patients. There are 466 rows corresponding to different pathways, and 57 total columns, one for each patient. The metadata have lots of information about the participants, weeks, days, coverage information, diagnosis, if the patient was on antibiotics or not, their race, sex, and sample types. The colnames of the ibd data correspond to the 'External_ID' column of the metadata, so we can look at that.
+
+
+Let's see if nMDS groups the patients by UC, or CD diagnosis.
+
+```{r}
+
+# subset the data and transpose
+nmds_ibd <- t(ibd[,2:ncol(ibd)]) 
+
+rownames(nmds_ibd) <- ibd_meta$diagnosis
+
+## Generate dissimilarity matrix
+vare.dis <- vegdist(nmds_ibd)
+
+## Generate nmds "latent variables" and evaluate fit 
+vare.mds0 <- isoMDS(vare.dis, k=2)
+stressplot(vare.mds0, vare.dis)
+
+
+## plot nmds 2 vs nmds 1
+ordiplot(vare.mds0, type = "t", main='nMDS by diagnosis')
+
+```
+
+
+nMDS doesnot separate the patients well by diagnosis. Maybe it separates them by another categorical. 
+
+
+#### By sex
+
+```{r}
+
+ord_by_colname <- function(colname) {
+  
+  # subset the data and transpose
+  nmds_ibd <- t(ibd[,2:ncol(ibd)]) 
+  
+  rownames(nmds_ibd) <- ibd_meta[[colname]]
+  
+  ## Generate dissimilarity matrix
+  vare.dis <- vegdist(nmds_ibd)
+  
+  ## Generate nmds "latent variables" and evaluate fit 
+  vare.mds0 <- isoMDS(vare.dis, k=2)
+  #stressplot(vare.mds0, vare.dis)
+  
+  
+  ## plot nmds 2 vs nmds 1
+  ordiplot(vare.mds0, type = "t", main=paste('nMDS by', colname))
+}
+
+
+colnames(ibd_meta)
+
+# by sex
+ord_by_colname('sex')
+
+# by race 
+ord_by_colname('race')
+
+# by antibiotics 
+ord_by_colname('Antibiotics')
+
+```
+  
+  
+nMDS is not separating any of these categories. Let's see how random forrest does! 
+
+
+## Random Forrest
+
+
+```{r}
+
+# scale the data rowwise
+RF_ibd <- scale(t(ibd[,2:ncol(ibd)]))
+
+# replace Nans 
+RF_ibd[is.nan(RF_ibd)] <- 0
+RF_ibd <- data.frame(RF_ibd)
+
+# add the classifier variable (diagnosis) 
+RF_ibd$diagnosis <- ibd_meta$diagnosis
+
+# random forrest
+RF_ibd_classify <- randomForest(x=RF_ibd[,1:(ncol(RF_ibd)-1)], 
+                                y=RF_ibd[,ncol(RF_ibd)], 
+                                ntree=501, importance=TRUE, 
+                                proximities=TRUE)
+
+
+RF_ibd_classify
+```
+
+
+The RF classification has a 50% error rate, this is not the best. 
+Maybe the permutation test will do better: 
+
+```{r}
+#RF_ibd_classify_sig <- rf.significance(x=RF_ibd_classify,  xdata=RF_ibd[,1:(ncol(RF_ibd)-1)], 
+#                                       nperm=1000, ntree=501 )  
+#
+#saveRDS(RF_ibd_classify_sig, 'data/RF_ibd_classify_sig.rds')
+
+RF_ibd_classify_sig <- readRDS('data/RF_ibd_classify_sig.rds')
+
+RF_ibd_classify_sig
+
+
+#### Cross-validation using the "leave-one-out" strategy
+
+## specify this cross-validation strategy:
+fit_control <- trainControl( method = "LOOCV" )
+
+## do the training, with the same parameters as above
+RF_ibd_classify_loocv <- train(RF_ibd[,1:(ncol(RF_ibd)-1)], 
+                               y=RF_ibd[,ncol(RF_ibd)], 
+                               method="rf", ntree=501, tuneGrid=data.frame(mtry=17), 
+                               trControl=fit_control)
+
+RF_ibd_classify_loocv
+
+## look at the performance
+RF_ibd_classify_loocv$results
+# This is an extremely well-fiting RF model
+
+## look at predicted (when left out) compared to observed
+RF_ibd_classify_loocv$pred
+
+```
+
+
+Classification accuracy with leave-one-out cross validation is about 0.5
+
+
+```{r}
+#### Indentifyng important predictor variables
+
+RF_ibd_classify_imp <- as.data.frame(RF_ibd_classify$importance)
+RF_ibd_classify_imp$features <- rownames(RF_ibd_classify_imp)
+RF_ibd_classify_imp_sorted <- arrange(RF_ibd_classify_imp  , desc(MeanDecreaseAccuracy))
+
+## plot of the distribution of improtance for accuracy
+barplot(RF_ibd_classify_imp_sorted$MeanDecreaseAccuracy, 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        main="RF Classification Variable Importance Distribution")
+
+## now let's just look at the 10 most important predictor variables
+barplot(RF_ibd_classify_imp_sorted[1:10,"MeanDecreaseAccuracy"], 
+        names.arg=RF_ibd_classify_imp_sorted[1:10,"features"] , 
+        ylab="Mean Decrease in Accuracy (Variable Importance)", 
+        las=2, ylim=c(0,0.02), main="Classification RF", cex.names = 0.5)
+
+```
+
+The accuracy of the classifier and the above plots shows that the random forrest classifier doesn't do much better than random chance at diagnosing CD vs. UC with these metagenomic data. 
+
+  
