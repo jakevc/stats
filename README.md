@@ -2,6 +2,10 @@
 
 Jake VanCampen
 
+### Stats for Genomics Analysis
+
+* [Random Forrest Classification](https://jakevc.github.io/stats/hws/Meta2.html)
+
 ### My work for adv biological statistics 2.
 
 * [SR7](https://jakevc.github.io/stats/hws/SR7.html), Robust regression with a horseshoe prior, and sparsification.
